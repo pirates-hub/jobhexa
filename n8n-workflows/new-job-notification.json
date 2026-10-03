@@ -1,0 +1,10 @@
+{
+  "name": "JobHexa New Job Notification",
+  "description": "Webhook workflow to notify users of new job postings",
+  "nodes": [
+    { "name": "Webhook", "type": "n8n-nodes-base.webhook", "description": "Triggered on new job creation POST /api/jobs" },
+    { "name": "Fetch Users", "type": "n8n-nodes-base.httpRequest", "description": "GET /api/users/subscribed" },
+    { "name": "Send Email", "type": "n8n-nodes-base.emailSend", "description": "Send via SMTP" }
+  ],
+  "note": "Import this into n8n (http://localhost:5678) and configure webhook + SMTP"
+}

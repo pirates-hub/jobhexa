@@ -1,0 +1,53 @@
+# JobHexa production stack.
+#
+# DATABASE: MongoDB is PRIVATE to this network (no published ports).
+#   - Preferred: use Atlas — put your mongodb+srv:// URI in server/.env as
+#     MONGODB_URI. Atlas only accepts the host's outbound IP if you list it
+#     under Network Access (use 0.0.0.0/0 only for testing).
+#   - The local `mongo` service is a fallback for offline use; reachable ONLY
+#     inside this compose network. To use it, set in server/.env:
+#       MONGODB_URI=mongodb://mongo:27017/jobhexa
+#
+# BACKEND: run EXACTLY ONE server replica. Reminder + collection crons live
+#   inside the server process — a second replica would send duplicate mails
+#   and create duplicate collection runs.
+#
+# OLLAMA (AI chat / study plans / PDF extract): NOT bundled by default.
+#   Without it the server uses graceful fallbacks. To enable AI:
+#     1. docker compose --profile ai up -d   (starts the ollama service below)
+#     2. docker compose exec ollama ollama pull qwen2.5-coder:7b
+#   Or point OLLAMA_BASE_URL at any reachable Ollama host.
+services:
+  mongo:
+    image: mongo:7
+    # No ports: private to the compose network.
+    volumes:
+      - mongo-data:/data/db
+  server:
+    build: ./server
+    ports:
+      - "5000:5000"
+    env_file: ./server/.env
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+    depends_on:
+      - mongo
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+  client:
+    build: ./client
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - ai
+    volumes:
+      - ollama-data:/root/.ollama
+volumes:
+  mongo-data:
+  ollama-data:

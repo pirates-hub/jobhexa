@@ -1,0 +1,10 @@
+{
+  "name": "JobHexa Deadline Reminder",
+  "description": "Cron workflow to send deadline reminders (7, 3, 1 days)",
+  "nodes": [
+    { "name": "Cron", "type": "n8n-nodes-base.cron", "description": "Run daily at 9 AM IST" },
+    { "name": "Fetch Jobs", "type": "n8n-nodes-base.httpRequest", "description": "GET /api/jobs/upcoming-deadlines" },
+    { "name": "Send Email", "type": "n8n-nodes-base.emailSend", "description": "Send via SMTP" }
+  ],
+  "note": "Import this into n8n (http://localhost:5678) and configure SMTP"
+}

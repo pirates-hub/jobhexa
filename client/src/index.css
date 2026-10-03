@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+  body {
+    overflow-x: hidden;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #F8FAFC;
+    color: #0F172A;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Sora', sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+::selection {
+  background: #EEF0FF;
+  color: #4338CA;
+}
+
+:focus-visible {
+  outline: 2px solid #5B5FEF;
+  outline-offset: 2px;
+}
+
+/* Premium utilities */
+.glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* DaisyUI Aura Gold for Login / Get Started */
+.aura {
+  position: relative;
+  padding: 2px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #FFD700, #FFA500, #FFD700);
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.35), 0 8px 32px rgba(255, 165, 0, 0.2);
+}
+.aura-gold {
+  background: linear-gradient(135deg, #FFD700 0%, #FFA500 25%, #FFDF00 50%, #FFA500 75%, #FFD700 100%);
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.4), 0 8px 32px rgba(255, 140, 0, 0.25);
+}
+.aura .card {
+  border-radius: 14px;
+  border: none;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .parallax { transform: none !important; }
+}

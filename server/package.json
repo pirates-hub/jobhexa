@@ -1,0 +1,43 @@
+{
+  "name": "jobhexa-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "JobHexa Backend Server",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "seed": "node src/seeds/seed.js",
+    "reseed:videos": "node src/seeds/reseedVideos.js",
+    "test": "vitest run",
+    "test:watch": "vitest --watch"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.0",
+    "express": "^4.18.0",
+    "express-rate-limit": "^8.7.0",
+    "express-validator": "^7.3.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.0.0",
+    "morgan": "^1.10.0",
+    "multer": "^2.3.0",
+    "node-cron": "^4.6.0",
+    "nodemailer": "^9.1.0",
+    "openai": "^7.10.0",
+    "passport": "^0.7.0",
+    "passport-github2": "^0.1.12",
+    "passport-google-oauth20": "^2.0.0",
+    "pdf-parse": "^2.4.5",
+    "slugify": "^1.6.9"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^9.1.0",
+    "nodemon": "^3.0.0",
+    "supertest": "^6.3.0",
+    "vitest": "^1.2.0"
+  }
+}
