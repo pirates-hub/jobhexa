@@ -12,11 +12,8 @@
 #   inside the server process — a second replica would send duplicate mails
 #   and create duplicate collection runs.
 #
-# OLLAMA (AI chat / study plans / PDF extract): NOT bundled by default.
-#   Without it the server uses graceful fallbacks. To enable AI:
-#     1. docker compose --profile ai up -d   (starts the ollama service below)
-#     2. docker compose exec ollama ollama pull qwen2.5-coder:7b
-#   Or point OLLAMA_BASE_URL at any reachable Ollama host.
+# OLLAMA: removed — AI runs on Groq cloud. Set OPENAI_API_KEY in
+# server/.env (key from console.groq.com, free, no card).
 services:
   mongo:
     image: mongo:7
@@ -28,8 +25,6 @@ services:
     ports:
       - "5000:5000"
     env_file: ./server/.env
-    environment:
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
     depends_on:
       - mongo
     deploy:
@@ -42,12 +37,5 @@ services:
       - "5173:80"
     depends_on:
       - server
-  ollama:
-    image: ollama/ollama:latest
-    profiles:
-      - ai
-    volumes:
-      - ollama-data:/root/.ollama
 volumes:
   mongo-data:
-  ollama-data:

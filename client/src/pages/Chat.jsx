@@ -514,16 +514,30 @@ function Chat() {
   const [saveMsg, setSaveMsg] = useState('');
   const messagesEndRef = useRef(null);
 
-  // slug/title index to repair model-written /jobs/<raw title> links
+  // slug/title index to repair model-written /jobs/<raw title> links.
+  // Built from the full job catalog (not just the side panel) so EVERY
+  // AI response's links resolve — RAG grounding for every response.
+  const [catalogIndex, setCatalogIndex] = useState({});
+  useEffect(() => {
+    if (!user) return;
+    jobService.getJobs({ limit: 100 }).then((res) => {
+      const map = {};
+      (res.data.data.jobs || []).forEach((j) => {
+        if (j.slug) map[j.slug.toLowerCase()] = j.slug;
+        if (j.title) map[j.title.trim().toLowerCase()] = j.slug;
+      });
+      setCatalogIndex(map);
+    }).catch(() => {});
+  }, [user]);
   const jobIndex = useMemo(() => {
-    const map = {};
+    const map = { ...catalogIndex };
     const jobs = rightData?.type === 'jobs' ? rightData.jobs || [] : [];
     jobs.forEach((j) => {
       if (j.slug) map[j.slug.toLowerCase()] = j.slug;
       if (j.title) map[j.title.trim().toLowerCase()] = j.slug;
     });
     return map;
-  }, [rightData]);
+  }, [rightData, catalogIndex]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -747,7 +761,7 @@ function Chat() {
       const reply = data.data?.reply || 'No reply';
       setMessages(prev => [...prev, { role: 'ai', text: reply }]);
     } catch {
-      setMessages(prev => [...prev, { role: 'ai', text: 'AI unavailable. Ensure Ollama is running at http://localhost:11434 with qwen2.5-coder:7b.' }]);
+      setMessages(prev => [...prev, { role: 'ai', text: 'AI unreachable. Check server is running and GROQ_API_KEY is set in server/.env.' }]);
     } finally {
       setLoading(false);
     }

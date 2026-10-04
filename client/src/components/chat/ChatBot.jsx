@@ -31,7 +31,7 @@ function ChatBot() {
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'ai', text: data.data?.reply || 'AI placeholder response' }]);
     } catch {
-      setMessages(prev => [...prev, { role: 'ai', text: 'AI unavailable. Ensure Ollama is running at http://localhost:11434 with qwen2.5-coder:7b.' }]);
+      setMessages(prev => [...prev, { role: 'ai', text: 'AI unreachable. Check server is running and GROQ_API_KEY is set in server/.env.' }]);
     } finally { setLoading(false); }
   };
 

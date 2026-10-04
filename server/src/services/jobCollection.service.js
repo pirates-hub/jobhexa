@@ -2,7 +2,7 @@
 //
 // PIPELINE (never auto-publish):
 //   discover -> conditional fetch (ETag/Last-Modified/hash) -> process
-//   ONLY new/changed documents -> Ollama structuring (null for missing)
+//   ONLY new/changed documents -> AI structuring (null for missing)
 //   -> validate -> dedup vs Job -> create as pending/ai_extracted
 //   -> admin verifies (verifyJob) -> public (verified-only reads).
 // Changed source documents behind an already-verified job flip it to
@@ -17,8 +17,7 @@ import CollectionRun from '../models/CollectionRun.js';
 import SOURCES from '../config/officialSources.js';
 
 const UA = process.env.COLLECTOR_USER_AGENT || 'JobHexa-Collector/1.0';
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5-coder:7b';
+// AI structuring goes through ai.service.js (Groq cloud).
 const MAX_DOCS_PER_SOURCE = 3;
 const MAX_DOC_HASHES = 500;
 
@@ -198,7 +197,7 @@ export const pdfToText = async (buffer, maxChars = 12000) => {
   }
 };
 
-// ---------------- Ollama structuring (null for missing, never invent) ----------------
+// ---------------- AI structuring (null for missing, never invent) ----------------
 
 const EXTRACTION_SHAPE = `{"title":"","organization":"","department":"","state":"","postName":"","advertisementNumber":"","salary":"","payScale":"","selectionProcess":[],"publicationDate":null,"qualification":[],"ageMin":null,"ageMax":null,"totalVacancies":null,"applicationStartDate":null,"applicationEndDate":null,"examDate":null,"applicationFee":null,"description":"","officialUrl":"","notificationPdfUrl":""}`;
 
@@ -217,42 +216,30 @@ const parseStrictJson = (text) => {
 };
 
 export const extractJobFields = async (notificationText, { timeoutMs = 90000 } = {}) => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        stream: false,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You extract structured data from Indian government recruitment notifications. ' +
-              'Extract only information explicitly supported by the provided official notification. ' +
-              'Never invent or infer missing information. Return null for missing fields. ' +
-              'Return ONLY valid JSON with exactly this shape, no extra text: ' + EXTRACTION_SHAPE,
-          },
-          { role: 'user', content: String(notificationText || '').slice(0, 8000) },
-        ],
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return { ok: false, error: `Ollama HTTP ${res.status}` };
-    const data = await res.json();
-    const content = data?.message?.content || data?.response || '';
-    if (!content) return { ok: false, error: 'Empty response from Ollama' };
+    const { aiChat } = await import('./ai.service.js');
+    const content = await aiChat(
+      [
+        {
+          role: 'system',
+          content:
+            'You extract structured data from Indian government recruitment notifications. ' +
+            'Extract only information explicitly supported by the provided official notification. ' +
+            'Never invent or infer missing information. Return null for missing fields. ' +
+            'Return ONLY valid JSON with exactly this shape, no extra text: ' + EXTRACTION_SHAPE,
+        },
+        { role: 'user', content: String(notificationText || '').slice(0, 8000) },
+      ],
+      { timeoutMs }
+    );
+    if (!content) return { ok: false, error: 'Empty response from AI provider' };
     const parsed = parseStrictJson(content);
     if (!parsed.ok || !parsed.data || typeof parsed.data !== 'object') {
       return { ok: false, error: parsed.error || 'Model did not return a JSON object' };
     }
     return { ok: true, data: parsed.data };
   } catch (err) {
-    clearTimeout(timer);
-    return { ok: false, error: err.name === 'AbortError' ? `Ollama timeout after ${timeoutMs}ms` : `Ollama unavailable: ${err.message}` };
+    return { ok: false, error: err.name === 'AbortError' ? `AI timeout after ${timeoutMs}ms` : `AI unavailable: ${err.message}` };
   }
 };
 

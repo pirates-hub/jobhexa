@@ -1,54 +1,40 @@
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5-coder:7b';
-const OLLAMA_TIMEOUT_MS = 90000;
+// All AI features run on Groq cloud (OpenAI-compatible API) — no local Ollama.
+// Required env: GROQ_API_KEY (from console.groq.com, free, no card).
+// Optional: GROQ_MODEL (default openai/gpt-oss-120b), GROQ_BASE_URL.
+const GROQ_BASE_URL = (process.env.GROQ_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.groq.com/openai/v1').replace(/\/$/, '');
+const GROQ_MODEL = process.env.GROQ_MODEL || process.env.OPENAI_MODEL || 'openai/gpt-oss-120b';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY || '';
+const GROQ_TIMEOUT_MS = parseInt(process.env.GROQ_TIMEOUT_MS || process.env.OPENAI_TIMEOUT_MS || '60000', 10);
 
-const ollamaChat = async (messages) => {
+// Single entry point used by every AI feature (chat, study plans, PDF, structuring).
+export const aiChat = async (messages, opts = {}) => {
+  const timeoutMs = opts.timeoutMs || GROQ_TIMEOUT_MS;
+  if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY is missing — add your Groq key (console.groq.com) to server/.env');
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
-
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+    const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages,
-        stream: false,
-      }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
+      body: JSON.stringify({ model: GROQ_MODEL, messages, stream: false }),
       signal: controller.signal,
     });
-
     clearTimeout(timeout);
-
-    if (!res.ok) {
-      const text = await res.text();
-      // Handle model not found
-      if (res.status === 404 || text.includes('model')) {
-        throw new Error(`Ollama model not found: ${OLLAMA_MODEL}. Run: ollama pull ${OLLAMA_MODEL}`);
-      }
-      throw new Error(`Ollama error ${res.status}: ${text}`);
-    }
-
+    if (!res.ok) throw new Error(`AI provider error ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const data = await res.json();
-    // Ollama returns { message: { role, content }, done: true }
-    const content = data.message?.content || data.response || '';
-    if (!content) throw new Error('Empty response from Ollama');
+    const content = data.choices?.[0]?.message?.content || '';
+    if (!content) throw new Error('Empty response from AI provider');
     return content;
   } catch (err) {
     clearTimeout(timeout);
-    if (err.name === 'AbortError') {
-      throw new Error(`Ollama timeout after ${OLLAMA_TIMEOUT_MS / 1000}s - model may be loading`);
-    }
-    if (err.cause?.code === 'ECONNREFUSED' || err.message.includes('ECONNREFUSED') || err.message.includes('fetch failed')) {
-      throw new Error(`Ollama not running at ${OLLAMA_BASE_URL}. Start with: ollama serve`);
-    }
+    if (err.name === 'AbortError') throw new Error(`AI provider timeout after ${timeoutMs / 1000}s`);
     throw err;
   }
 };
 
 export const summarizePdf = async (pdfText) => {
   try {
-    const content = await ollamaChat([
+    const content = await aiChat([
       { role: 'system', content: 'You are a government job notification summarizer. Summarize the key details: title, department, vacancies, eligibility, important dates, fee, and syllabus in a concise summary with bullet key points.' },
       { role: 'user', content: pdfText.substring(0, 8000) },
     ]);
@@ -57,12 +43,12 @@ export const summarizePdf = async (pdfText) => {
       keyPoints: content.split('\n').filter(l => l.trim().startsWith('-') || l.trim().startsWith('•') || l.trim().startsWith('*')).slice(0, 5),
     };
   } catch (e) {
-    console.error('[Ollama] Summarize error:', e.message);
+    console.error('[AI] Summarize error:', e.message);
     // Mock fallback - keep existing behavior
-    if (e.message.includes('not running') || e.message.includes('model not found') || e.message.includes('timeout')) {
+    if (e.message.includes('unreachable') || e.message.includes('model error') || e.message.includes('timeout')) {
       return {
-        summary: `Ollama unavailable (${e.message}). Mock: This government notification contains job details, eligibility, dates, and syllabus.`,
-        keyPoints: ['Mock fallback - Ollama not available', `PDF length: ${pdfText?.length || 0} chars`, `Error: ${e.message}`],
+        summary: `AI unavailable (${e.message}). Mock: This government notification contains job details, eligibility, dates, and syllabus.`,
+        keyPoints: ['Mock fallback - AI not available', `PDF length: ${pdfText?.length || 0} chars`, `Error: ${e.message}`],
       };
     }
     return { summary: 'AI summarization failed: ' + e.message, keyPoints: [] };
@@ -122,17 +108,17 @@ export const chatWithAI = async (message, context) => {
       }
     } catch (e) { console.error('[RAG] Jobs fetch failed', e.message); }
 
-    const content = await ollamaChat([
+    const content = await aiChat([
       { role: 'system', content: 'You are JobHexa AI assistant for Indian government job aspirants. RULES: (1) Only mention jobs from the JobHexa Database below — never invent post names, groups, vacancy numbers or dates. (2) Copy titles, numbers, dates and links exactly. (3) Use "Not specified" for anything missing — never write "undefined". (4) If asked for jobs not in the list, say so and direct to the official site. For each job, format the title as a markdown link [Title](/jobs/slug) exactly as provided so user can click to visit. Be accurate, concise, helpful. User context: ' + JSON.stringify(context || {}) + jobsContext },
       { role: 'user', content: message },
     ]);
     return { reply: content };
   } catch (e) {
-    console.error('[Ollama] Chat error:', e.message);
+    console.error('[AI] Chat error:', e.message);
     // Mock fallback
-    if (e.message.includes('not running') || e.message.includes('model not found') || e.message.includes('timeout')) {
+    if (e.message.includes('unreachable') || e.message.includes('model error') || e.message.includes('timeout')) {
       return {
-        reply: `Ollama unavailable: ${e.message}. Mock reply - You asked: "${message}". Add Ollama at ${OLLAMA_BASE_URL} with model ${OLLAMA_MODEL} to enable real AI.`,
+        reply: `AI unavailable: ${e.message}. Mock reply - You asked: "${message}". Add your Groq key (console.groq.com) as OPENAI_API_KEY in server/.env to enable real AI.`,
       };
     }
     return { reply: 'AI error: ' + e.message };
@@ -141,7 +127,7 @@ export const chatWithAI = async (message, context) => {
 
 export const extractJobFromPdf = async (pdfText) => {
   try {
-    const content = await ollamaChat([
+    const content = await aiChat([
       { role: 'system', content: 'Extract government job data from this notification PDF. Return ONLY valid JSON with: title, department, vacancies {general,obc,sc,st,ews}, qualifications [{level,field}], ageLimits {min,max,relaxation:{obc,sc,st}}, dates {applicationStart,applicationEnd,examDate}, fees {general,obc,sc,st}, officialWebsite, syllabus [{section, topics:[], marks, duration, tableData:[]}], selectionProcess, examPattern. For syllabus tables, preserve rows/columns as tableData. No extra text, only JSON.' },
       { role: 'user', content: pdfText.substring(0, 8000) },
     ]);
@@ -152,9 +138,9 @@ export const extractJobFromPdf = async (pdfText) => {
     }
     return JSON.parse(content);
   } catch (e) {
-    console.error('[Ollama] Extract error:', e.message);
-    if (e.message.includes('not running') || e.message.includes('model not found')) {
-      return { title: 'Mock extraction - Ollama unavailable', confidence: 0.5, vacancies: null, qualifications: [], dates: {}, error: e.message };
+    console.error('[AI] Extract error:', e.message);
+    if (e.message.includes('unreachable') || e.message.includes('model error')) {
+      return { title: 'Mock extraction - AI unavailable', confidence: 0.5, vacancies: null, qualifications: [], dates: {}, error: e.message };
     }
     return { error: e.message };
   }
@@ -185,7 +171,7 @@ export const generateStudyPlan = async (examName, user, missingTopics, days = 30
     if (days > 30) {
       return fallbackPlan(days);
     }
-    const content = await ollamaChat([
+    const content = await aiChat([
       { role: 'system', content: `You are a government exam preparation planner. Create a concise ${days}-day study plan for ${examName}. User: ${JSON.stringify(user || {})}. Focus on missing topics: ${topicsList}. Return as JSON array with ${days} objects: {day:1, topic:"", subject:"", hours:2, tasks:[""]}. Be concise.` },
       { role: 'user', content: `Create ${days}-day plan for ${examName}. Missing topics: ${topicsList}` },
     ]);
@@ -203,14 +189,14 @@ export const generateStudyPlan = async (examName, user, missingTopics, days = 30
       return fallbackPlan(days);
     }
   } catch (e) {
-    console.error('[Ollama] Study plan error:', e.message);
+    console.error('[AI] Study plan error:', e.message);
     return { error: e.message, plan: [] };
   }
 };
 
 export const generateInterviewQuestions = async (jobTitle, user) => {
   try {
-    const content = await ollamaChat([
+    const content = await aiChat([
       { role: 'system', content: `You are an interviewer for Indian government jobs. Generate 5 mock interview questions for ${jobTitle}. User: ${JSON.stringify(user || {})}. Return JSON array: [{question:"", tip:"", category:""}].` },
       { role: 'user', content: `Generate interview questions for ${jobTitle}` },
     ]);

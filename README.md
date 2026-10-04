@@ -10,14 +10,14 @@ Find government jobs you are eligible for. Built with React + Vite, Tailwind, No
 - Saved jobs, Application tracker
 - Preparation (14 subjects, 65 topics, YouTube)
 - Admin panel (verify jobs, manage users, audit logs, PDF upload)
-- AI Assistant (Ollama qwen2.5-coder:7b, RAG with Job DB, two-panel workspace, study plan 1-90 days, recommendations, interview prep)
+- AI Assistant (Groq gpt-oss-120b, RAG with Job DB, two-panel workspace, study plan 1-90 days, recommendations, interview prep)
 - Study Plan daily notifications (8 AM IST, in-app + Gmail)
 - Notifications bell
 
 ## Quick Start
 
 ### Prerequisites
-- Node.js 18+, MongoDB local running, Ollama (http://localhost:11434) with `ollama pull qwen2.5-coder:7b`
+- Node.js 18+, MongoDB Atlas, Groq API key (free at console.groq.com, no local GPU needed)
 
 ### Install
 ```bash
@@ -37,8 +37,9 @@ SMTP_PORT=587
 SMTP_USER=your@gmail.com
 SMTP_PASS=app-password
 SMTP_FROM=noreply@jobhexa.com
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5-coder:7b
+AI_PROVIDER=groq
+GROQ_API_KEY=your_groq_api_key_from_console_groq_com
+GROQ_MODEL=openai/gpt-oss-120b
 ```
 
 ### Seed
@@ -72,11 +73,10 @@ npm run server       # backend :5000
 - Admin: GET /api/admin/dashboard, /jobs, /jobs/pending, PATCH /jobs/:id/verify, GET /api/admin/users
 - Notifications: GET /api/notifications, GET /api/notifications/unread-count, PATCH /read-all
 
-## Ollama
+## Groq (cloud AI, free tier, no card)
 ```bash
-ollama serve
-ollama pull qwen2.5-coder:7b
-# Check: curl http://localhost:11434/api/tags
+# No install — get a key at https://console.groq.com/keys and set GROQ_API_KEY in server/.env
+# Check: key starts with gsk_ and /api/chat answers
 ```
 
 ## n8n (optional)
