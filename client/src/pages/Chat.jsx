@@ -9,6 +9,7 @@ import Badge from '../components/common/Badge';
 import { formatDate, formatCurrency, daysUntil, getDeadlineColor, getJobStatusBadge } from '../utils/helpers';
 
 function renderWithLinks(text, jobIndex = {}) {
+  if (!text || typeof text !== 'string') return null;
   const parts = text.split(/(\[.*?\]\(.*?\)|https?:\/\/[^\s)]+)/g);
   return parts.map((part, i) => {
     const match = part.match(/\[(.*?)\]\((.*?)\)/);
@@ -37,8 +38,20 @@ function renderWithLinks(text, jobIndex = {}) {
   });
 }
 
-function RightPanel({ data, onSaveJob }) {
+function RightPanel({ data, onSaveJob, jobIndex = {} }) {
   const [started, setStarted] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startMsg, setStartMsg] = useState('');
+  const startPlan = async () => {
+    setStarting(true); setStartMsg('');
+    try {
+      await api.post('/chat/study-plan/start');
+      setStarted(true);
+      setStartMsg('Plan started! Daily 8 AM notifications from Day 1.');
+    } catch (e) {
+      setStartMsg(e.response?.data?.message || 'Could not start plan — try again.');
+    } finally { setStarting(false); }
+  };
   if (!data) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-8">
@@ -313,20 +326,22 @@ function RightPanel({ data, onSaveJob }) {
     );
   }
 
+  if (data.type === 'answer') {
+    return (
+      <div className="p-5 space-y-4">
+        <div>
+          <h3 className="font-bold text-lg text-gray-900">AI Answer</h3>
+          {data.question && <p className="text-sm text-gray-500 mt-1">Q: {data.question}</p>}
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-5 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+          {renderWithLinks(data.text || '', jobIndex)}
+        </div>
+        <Link to="/jobs" className="inline-flex text-xs font-bold text-primary-700 hover:underline">Browse all jobs →</Link>
+      </div>
+    );
+  }
+
   if (data.type === 'studyPlan') {
-    const [starting, setStarting] = useState(false);
-    const [startedMsg, setStartedMsg] = useState('');
-    const handleStart = async () => {
-      setStarting(true);
-      try {
-        const res = await api.post('/chat/study-plan/start');
-        setStartedMsg(res.data.data.message || 'Plan started! Daily 8 AM from Day 1.');
-        setTimeout(()=>setStartedMsg(''), 4000);
-      } catch (e) {
-        setStartedMsg(e.response?.data?.message || 'Failed to start');
-        setTimeout(()=>setStartedMsg(''), 4000);
-      } finally { setStarting(false); }
-    };
     return (
       <div className="p-5 space-y-4">
         <div className="flex items-center justify-between">
@@ -334,17 +349,23 @@ function RightPanel({ data, onSaveJob }) {
           <span className="text-xs bg-green-50 text-green-700 px-3 py-1 rounded-full">Daily 8 AM</span>
         </div>
         <p className="text-sm text-gray-500">{data.exam} • {data.plan?.length || 0} days • Personalized</p>
-        {startedMsg && <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">{startedMsg}</p>}
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-          <p className="text-sm font-medium text-blue-900">Your plan is ready!</p>
-          <p className="text-xs text-blue-600 mt-1">Click Start to begin from Day 1 and get daily notifications at 8 AM IST.</p>
-          <div className="flex gap-2 mt-3">
-            <button onClick={handleStart} disabled={starting} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50">
-              {starting ? 'Starting...' : '▶ Start Plan Now'}
-            </button>
-            <Link to="/my-plan" className="border border-gray-200 bg-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">Go to My Plan →</Link>
+        {startMsg && !started && <p className="text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-xl p-3">{startMsg}</p>}
+        {started ? (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
+            <p className="text-sm font-medium text-green-800">✓ Plan Started!</p>
+            <p className="text-xs text-green-600 mt-1">Daily 8 AM notifications are on — see <Link to="/my-plan" className="font-bold underline">My Plan</Link>.</p>
           </div>
-        </div>
+        ) : (
+          <>
+            <p className="text-xs text-blue-600 mt-1">Click Start to begin from Day 1 and get daily notifications at 8 AM IST.</p>
+            <div className="flex gap-2 mt-3">
+              <button onClick={startPlan} disabled={starting} className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50">
+                {starting ? 'Starting...' : '▶ Start Plan Now'}
+              </button>
+              <Link to="/my-plan" className="border border-gray-200 bg-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">Go to My Plan →</Link>
+            </div>
+          </>
+        )}
         <div className="space-y-2">
           <p className="text-xs font-medium text-gray-500">Preview (first 3 days):</p>
           {data.plan?.slice(0,3).map(d => (
@@ -397,38 +418,6 @@ function RightPanel({ data, onSaveJob }) {
               <p className="text-xs font-medium text-primary-600 mb-2">{q.category} • Q{i+1}</p>
               <p className="font-medium text-sm text-gray-900 leading-relaxed">{q.question}</p>
               <p className="text-xs text-gray-600 mt-3 bg-yellow-50 border border-yellow-100 rounded-xl p-3 leading-relaxed">💡 <span className="font-medium">Tip:</span> {q.tip}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (data.type === 'studyPlan') {
-    return (
-      <div className="p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-bold text-lg text-gray-900">30-Day Study Plan</h3>
-          <span className="text-xs bg-green-50 text-green-700 px-3 py-1 rounded-full">Daily notifs 8 AM</span>
-        </div>
-        <p className="text-sm text-gray-500">{data.exam} • {data.plan?.length || 0} days • Personalized • 🔔 Daily at 8 AM IST</p>
-        {!started ? (
-          <button onClick={()=>setStarted(true)} className="w-full bg-primary-600 text-white py-3 rounded-xl text-sm font-medium hover:bg-primary-700 shadow-sm">▶ Start Plan Now</button>
-        ) : (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
-            <p className="text-sm font-medium text-green-800">✓ Plan Started!</p>
-            <p className="text-xs text-green-600 mt-1">You'll get daily notifications at 8 AM for Day 1: {data.plan?.[0]?.topic}</p>
-          </div>
-        )}
-        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-          {data.plan?.slice(0,30).map(d => (
-            <div key={d.day} className={`bg-white border rounded-xl p-4 hover:shadow-sm transition ${started && d.day===1 ? 'border-green-300 bg-green-50/30' : 'border-gray-200 hover:border-gray-300'}`}>
-              <div className="flex justify-between items-start mb-2">
-                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${started && d.day===1 ? 'bg-green-100 text-green-700' : 'bg-primary-100 text-primary-700'}`}>Day {d.day}</span>
-                <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-full">{d.hours}h • {d.subject}</span>
-              </div>
-              <p className="font-medium text-sm text-gray-900">{d.topic}</p>
-              <ul className="text-xs text-gray-600 mt-2.5 space-y-1 bg-gray-50 p-2.5 rounded-lg">{d.tasks?.slice(0,3).map((t,i)=><li key={i} className="flex gap-2"><span className="text-primary-500">•</span><span>{t}</span></li>)}</ul>
             </div>
           ))}
         </div>
@@ -581,6 +570,7 @@ function Chat() {
 
   const fetchRightPanel = async (userMessage) => {
     const lower = userMessage.toLowerCase();
+    let handled = false;
     const findJob = async (query) => {
       try {
         const res = await jobService.getJobs({ search: query, limit: 1 });
@@ -594,6 +584,7 @@ function Chat() {
           const res = await api.get('/jobs/recommended');
           setRightData({ type: 'recommended', jobs: res.data.data.jobs });
           setMobileTab('results');
+          handled = true;
           return;
         } catch {}
       }
@@ -608,10 +599,15 @@ function Chat() {
           const daysMatch = lower.match(/(\d+)\s*day/);
           const days = daysMatch ? Math.min(Math.max(parseInt(daysMatch[1]), 1), 90) : 30;
           const res = await api.post('/chat/study-plan', { exam, days });
-          const planData = res.data.data.plan;
-          const planArray = Array.isArray(planData) ? planData : planData.plan || planData;
+          const planData = res.data?.data?.plan;
+          const planArray = Array.isArray(planData) ? planData : planData?.plan || [];
+          if (!planArray.length) {
+            setMessages(prev => [...prev, { role: 'ai', text: 'Study-plan generation returned no days — please try again.' }]);
+            return;
+          }
           setRightData({ type: 'studyPlan', plan: planArray, exam: `${days}-Day ${exam} Plan` });
           setMobileTab('results');
+          handled = true;
           return;
         } catch (e) {
           setMessages(prev => [...prev, { role: 'ai', text: e.response?.data?.message || 'Study-plan generation failed — please try again.' }]);
@@ -626,6 +622,7 @@ function Chat() {
           const res = await api.post('/chat/interview', { jobTitle });
           setRightData({ type: 'interview', questions: res.data.data.questions, jobTitle });
           setMobileTab('results');
+          handled = true;
           return;
         } catch {}
       }
@@ -634,6 +631,7 @@ function Chat() {
         const res = await jobService.getJobs({ limit: 10 });
         setRightData({ type: 'jobs', jobs: res.data.data.jobs });
         setMobileTab('results');
+        handled = true;
         return;
       }
 
@@ -652,6 +650,7 @@ function Chat() {
             }
             setRightData({ type: 'eligibleJobs', jobs: eligibleJobs });
             setMobileTab('results');
+            handled = true;
             return;
           } catch {}
         }
@@ -670,6 +669,7 @@ function Chat() {
             setRightData({ type: 'eligibility', result: { eligible: false, score: 0, reasons: [], warnings: ['Login to check eligibility'], breakdown: {} }, jobTitle: job.title });
           }
           setMobileTab('results');
+          handled = true;
           return;
         }
       }
@@ -686,6 +686,7 @@ function Chat() {
           const full = await jobService.getJobBySlug(job.slug);
           setRightData({ type: 'jobDetails', job: full.data.data.job });
           setMobileTab('results');
+          handled = true;
           return;
         }
       }
@@ -702,6 +703,7 @@ function Chat() {
           const full = await jobService.getJobBySlug(job.slug);
           setRightData({ type: 'officialLink', job: full.data.data.job });
           setMobileTab('results');
+          handled = true;
           return;
         }
       }
@@ -736,6 +738,7 @@ function Chat() {
             isCommon,
           });
           setMobileTab('results');
+          handled = true;
           return;
         } catch {}
       }
@@ -750,7 +753,7 @@ function Chat() {
     setMessages(prev => [...prev, { role: 'user', text: userText }]);
     setInput('');
     setLoading(true);
-    fetchRightPanel(userText);
+    const panelHandled = await fetchRightPanel(userText);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -760,6 +763,11 @@ function Chat() {
       const data = await res.json();
       const reply = data.data?.reply || 'No reply';
       setMessages(prev => [...prev, { role: 'ai', text: reply }]);
+      // Every AI response also lands in the results panel
+      if (!panelHandled) {
+        setRightData({ type: 'answer', text: reply, question: userText });
+        setMobileTab('results');
+      }
     } catch {
       setMessages(prev => [...prev, { role: 'ai', text: 'AI unreachable. Check server is running and GROQ_API_KEY is set in server/.env.' }]);
     } finally {

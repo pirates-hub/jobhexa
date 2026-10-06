@@ -7,6 +7,8 @@ function PdfUpload() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState(null);
 
   const handleUpload = async () => {
     if (!file) { setError('Select a PDF file'); return; }
@@ -19,10 +21,20 @@ function PdfUpload() {
     } catch (e) { setError(e.response?.data?.message || 'Upload failed'); } finally { setLoading(false); }
   };
 
+  const publish = async () => {
+    if (!result?.extraction) return;
+    setPublishing(true); setError('');
+    try {
+      const res = await api.post('/pdf/create-job', { extraction: result.extraction });
+      setPublished(res.data.data.job);
+    } catch (e) { setError(e.response?.data?.message || 'Publish failed'); }
+    finally { setPublishing(false); }
+  };
+
   const onDrop = (e) => {
     e.preventDefault(); setDragOver(false);
     const f = e.dataTransfer.files?.[0];
-    if (f && f.type==='application/pdf') setFile(f);
+    if (f && f.type==='application/pdf') { setFile(f); setPublished(null); }
     else setError('Please drop a PDF file');
   };
 
@@ -129,6 +141,18 @@ function PdfUpload() {
                 <div className="p-7"><p className="text-xs font-medium text-slate-600 whitespace-pre-line max-h-96 overflow-auto bg-slate-50 border border-slate-200 rounded-2xl p-4 leading-relaxed">{result.text?.substring(0, 5000)}</p></div>
               </div>
             </div>
+            <div className="bg-white rounded-[24px] border border-slate-200/70 shadow-sm p-7 flex flex-col sm:flex-row sm:items-center gap-4 justify-between">
+              <div>
+                <h3 className="font-extrabold text-slate-900">Publish to Jobs page</h3>
+                <p className="text-xs font-medium text-slate-500 mt-1">Creates a verified job from this extraction — appears on /jobs instantly + notifies users.</p>
+              </div>
+              <button onClick={publish} disabled={publishing} className="rounded-full bg-emerald-600 text-white px-6 py-3 text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 transition shrink-0">{publishing ? 'Publishing…' : 'Publish to Jobs →'}</button>
+            </div>
+            {published && (
+              <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-5 text-sm font-semibold text-emerald-800">
+                Published: {published.title} — <a href={`/jobs/${published.slug}`} className="underline font-bold">view on Jobs page →</a>
+              </div>
+            )}
           </div>
         )}
       </div>
