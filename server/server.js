@@ -29,7 +29,25 @@ startJobUpdateCron();
 startCollectionCrons();
 
 // Middleware
-app.use(helmet());
+// CSP allowlist: Vanta background CDN, Google Fonts, YouTube embeds/thumbs.
+// Default helmet() would block these (works in dev because vite serves the
+// client without helmet — which is exactly why animation died only on Render).
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
+      connectSrc: ["'self'", 'https:'],
+      frameSrc: ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
+      mediaSrc: ["'self'", 'https:', 'blob:'],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true }));
 app.use(morgan('dev'));
 app.use(express.json());
