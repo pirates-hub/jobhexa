@@ -12,10 +12,10 @@ const sizeMap = {
   lg: 'text-base px-4 py-1.5',
 };
 
-function Badge({ children, color = 'gray', size = 'md' }) {
+function Badge({ children, color = 'gray', size = 'md', className = '' }) {
   return (
     <span
-      className={`inline-block rounded-full font-medium ${colorMap[color] || colorMap.gray} ${sizeMap[size] || sizeMap.md}`}
+      className={`inline-block rounded-full font-medium max-w-full ${colorMap[color] || colorMap.gray} ${sizeMap[size] || sizeMap.md} ${className}`}
     >
       {children}
     </span>

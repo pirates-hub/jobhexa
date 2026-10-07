@@ -30,7 +30,7 @@ function AdminDashboard() {
               <h1 className="mt-4 text-3xl lg:text-4xl font-extrabold tracking-[-0.04em]" style={{fontFamily:'Sora'}}>Admin Dashboard</h1>
               <p className="text-sm font-medium text-white/65 mt-2">Monitor jobs, verifications and users — everything in one place.</p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Link to="/admin/overview" className="inline-flex bg-white text-slate-900 px-6 py-3 rounded-full font-bold text-sm shadow-md hover:bg-slate-50 transition">Overview →</Link>
               <Link to="/admin/jobs" className="inline-flex bg-white/10 backdrop-blur border border-white/15 text-white px-6 py-3 rounded-full font-bold hover:bg-white/15 transition">Manage jobs →</Link>
               <Link to="/admin/verify" className="hidden sm:inline-flex bg-white/10 backdrop-blur border border-white/15 text-white px-6 py-3 rounded-full font-bold hover:bg-white/15 transition">Verify ({stats?.pendingJobs || 0})</Link>

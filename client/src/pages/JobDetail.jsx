@@ -73,7 +73,7 @@ function JobDetail() {
             <div className="flex flex-col gap-6">
               <div className="h-8 w-2/3 bg-slate-200 rounded-xl animate-pulse" />
               <div className="h-4 w-1/3 bg-slate-100 rounded-lg animate-pulse" />
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+              <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
                 {[1,2,3,4].map(i => <div key={i} className="h-24 bg-slate-50 rounded-2xl animate-pulse border border-slate-100" />)}
               </div>
             </div>
@@ -322,7 +322,7 @@ function JobDetail() {
                   <h2 className="text-sm font-extrabold tracking-widest uppercase text-slate-900">Application fee</h2>
                 </div>
                 <div className="p-7 lg:p-8">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 min-[480px]:grid-cols-2 md:grid-cols-3 gap-3">
                     {Object.entries(job.applicationFee).map(([cat, amount])=> amount!==null && amount!==undefined && (
                       <div key={cat} className="rounded-2xl bg-slate-50 border border-slate-200/70 p-4 text-center hover:bg-white hover:shadow-sm transition">
                         <p className="text-[11px] font-bold tracking-widest uppercase text-slate-500 capitalize">{cat}</p>

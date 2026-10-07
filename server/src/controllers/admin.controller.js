@@ -33,12 +33,15 @@ export const getPendingJobs = async (req, res) => {
 export const verifyJob = async (req, res) => {
   const job = await Job.findById(req.params.id);
   if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
+  const newlyPublished = job.verificationStatus !== 'verified';
   job.verificationStatus = 'verified';
   job.verifiedBy = req.user._id;
   job.verificationDate = new Date();
   await job.save();
   await logAction(req.user._id, 'verify_job', 'Job', job._id, {}, req.ip);
-  // INSTANT new-job alert — the second a job is verified (opted-in users only)
+  // INSTANT new-job alert — only on the pending -> verified transition (no resend spam)
+  // In-app for everyone opted in; email for those with email alerts on.
+  if (!newlyPublished) return res.json({ success: true, data: { job } });
   try {
     const users = await User.find({ 'notificationPreferences.newJobs': { $ne: false } }).select('_id').limit(2000);
     if (users.length) {
@@ -50,6 +53,13 @@ export const verifyJob = async (req, res) => {
         jobId: job._id,
       }));
       await Notification.insertMany(docs, { ordered: false });
+    }
+    const mailed = await User.find({ 'notificationPreferences.newJobs': { $ne: false }, 'notificationPreferences.email': { $ne: false }, email: { $exists: true } }).select('email name').limit(500);
+    if (mailed.length) {
+      const { sendNewJobNotification } = await import('../services/email.service.js');
+      for (const u of mailed) {
+        try { await sendNewJobNotification(u, job); } catch (e) { console.error('[Notify] new-job mail failed', u.email, e.message); }
+      }
     }
   } catch (e) { console.error('[Notify] instant verify failed', e.message); }
   notifyNewJobTelegram(job);
@@ -80,6 +90,13 @@ export const createJob = async (req, res) => {
         jobId: job._id,
       }));
       await Notification.insertMany(docs, { ordered: false });
+    }
+    const mailed = await User.find({ 'notificationPreferences.newJobs': { $ne: false }, 'notificationPreferences.email': { $ne: false }, email: { $exists: true } }).select('email name').limit(500);
+    if (mailed.length) {
+      const { sendNewJobNotification } = await import('../services/email.service.js');
+      for (const u of mailed) {
+        try { await sendNewJobNotification(u, job); } catch (e) { console.error('[Notify] new-job mail failed', u.email, e.message); }
+      }
     }
   } catch (e) { console.error('[Notify] instant create failed', e.message); }
   res.status(201).json({ success: true, data: { job } });

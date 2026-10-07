@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-06T17:27:41.291Z",
+  "sourcesTried": 1,
+  "succeeded": 1,
+  "failed": 0,
+  "skipped": 0,
+  "empty": [],
+  "newOrUpdated": 5,
+  "closingSoon": 0,
+  "totalJobs": 5,
+  "failures": [],
+  "results": [
+    {
+      "id": "keralapsc",
+      "status": "ok",
+      "ms": 12810,
+      "found": 5,
+      "stored": 5
+    }
+  ]
+}

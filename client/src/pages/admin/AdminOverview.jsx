@@ -24,7 +24,7 @@ function AdminOverview() {
         <div className="rounded-[24px] bg-slate-900 text-white p-7 mb-6">
           <h1 className="text-2xl font-extrabold">Admin Overview</h1>
           <p className="text-sm text-white/65 mt-1">Everything in one separate section — mails, notifications, crons, videos, audits.</p>
-          <div className="flex gap-4 mt-3 text-xs font-bold text-white/80">
+          <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-xs font-bold text-white/80">
             <span>Jobs {stats.totalJobs}</span><span>Pending {stats.pendingJobs}</span>
             <span>Users {stats.totalUsers}</span><span>Mails {stats.mailTotal}</span>
             <span>Notifs {stats.notifCount}</span><span>Videos {stats.videoCount}</span>
@@ -47,9 +47,11 @@ function AdminOverview() {
 
         {tab === 'Mails' && (
           <div className="bg-white rounded-2xl border overflow-hidden">
-            <table className="w-full text-sm"><thead className="bg-slate-50 text-xs uppercase"><tr><th className="px-4 py-2 text-left">When</th><th className="px-4 py-2 text-left">User</th><th className="px-4 py-2 text-left">Type</th><th className="px-4 py-2 text-left">Method</th></tr></thead>
-              <tbody>{recentMails.map((l) => <tr key={l._id} className="border-t"><td className="px-4 py-2 text-xs">{new Date(l.createdAt).toLocaleString('en-IN')}</td><td className="px-4 py-2">{l.user?.email}</td><td className="px-4 py-2">{l.notificationType}</td><td className="px-4 py-2">{l.method}</td></tr>)}</tbody>
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[560px]"><thead className="bg-slate-50 text-xs uppercase"><tr><th className="px-4 py-2 text-left">When</th><th className="px-4 py-2 text-left">User</th><th className="px-4 py-2 text-left">Type</th><th className="px-4 py-2 text-left">Method</th></tr></thead>
+              <tbody>{recentMails.map((l) => <tr key={l._id} className="border-t"><td className="px-4 py-2 text-xs whitespace-nowrap">{new Date(l.createdAt).toLocaleString('en-IN')}</td><td className="px-4 py-2 break-all">{l.user?.email}</td><td className="px-4 py-2">{l.notificationType}</td><td className="px-4 py-2">{l.method}</td></tr>)}</tbody>
             </table>
+            </div>
           </div>
         )}
 

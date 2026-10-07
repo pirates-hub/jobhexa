@@ -1,0 +1,31 @@
+{
+  "name": "jobhexa-aggregator",
+  "version": "1.0.0",
+  "description": "Config-driven fetcher for Indian government job notifications (Central + states + UTs). Fetch and store only.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node index.js",
+    "once": "node index.js --once",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "dayjs": "^1.11.13",
+    "node-cron": "^4.2.0",
+    "p-limit": "^6.2.0",
+    "pdf-parse": "^2.4.5",
+    "pino": "^9.6.0"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.49.0",
+    "tesseract.js": "^6.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "sqlite": "Node.js built-in node:sqlite (no native addons, no build tools)"
+}

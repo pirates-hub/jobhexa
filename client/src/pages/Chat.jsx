@@ -189,7 +189,7 @@ function RightPanel({ data, onSaveJob, jobIndex = {} }) {
           </div>
         </div>
         {job.description && <p className="text-sm text-gray-700 bg-gray-50 p-4 rounded-xl leading-relaxed border border-gray-100">{job.description}</p>}
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 gap-3 text-sm">
           <div className="bg-white border border-gray-200 p-3.5 rounded-xl"><p className="text-xs text-gray-400 font-medium mb-1">Qualification</p><p className="font-semibold text-gray-900">{job.eligibility?.qualifications?.map(q=>q.level).join(', ') || '-'}</p></div>
           <div className="bg-white border border-gray-200 p-3.5 rounded-xl"><p className="text-xs text-gray-400 font-medium mb-1">Age Limit</p><p className="font-semibold text-gray-900">{job.eligibility ? `${job.eligibility.ageMin||18}-${job.eligibility.ageMax} yrs` : '-'}</p></div>
           <div className="bg-white border border-gray-200 p-3.5 rounded-xl"><p className="text-xs text-gray-400 font-medium mb-1">Vacancies</p><p className="font-semibold text-gray-900">{job.totalVacancies?.toLocaleString() || '-'}</p></div>
@@ -333,7 +333,7 @@ function RightPanel({ data, onSaveJob, jobIndex = {} }) {
           <h3 className="font-bold text-lg text-gray-900">AI Answer</h3>
           {data.question && <p className="text-sm text-gray-500 mt-1">Q: {data.question}</p>}
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-5 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+        <div className="bg-white border border-gray-200 rounded-xl p-5 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0">
           {renderWithLinks(data.text || '', jobIndex)}
         </div>
         <Link to="/jobs" className="inline-flex text-xs font-bold text-primary-700 hover:underline">Browse all jobs →</Link>
@@ -779,7 +779,7 @@ function Chat() {
   if (!user) return null;
 
   return (
-    <div className="h-[calc(100vh-64px)] flex flex-col bg-[#f8fafc]">
+    <div className="h-[calc(100vh-64px)] supports-[height:100dvh]:h-[calc(100dvh-64px)] flex flex-col bg-[#f8fafc] overflow-hidden">
       <div className="md:hidden flex border-b border-gray-200 bg-white">
         <button onClick={()=>setMobileTab('chat')} className={`flex-1 py-3.5 text-sm font-medium transition ${mobileTab==='chat' ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50/50' : 'text-gray-500 hover:text-gray-700'}`}>💬 Chat</button>
         <button onClick={()=>setMobileTab('results')} className={`flex-1 py-3.5 text-sm font-medium transition ${mobileTab==='results' ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50/50' : 'text-gray-500 hover:text-gray-700'}`}>📊 Results {rightData ? '•' : ''}</button>
@@ -825,7 +825,7 @@ function Chat() {
             {messages.map((m,i)=>(
               <div key={i} className={`flex gap-3 ${m.role==='user' ? 'justify-end' : 'justify-start'}`}>
                 {m.role==='ai' && <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0 mt-1 shadow-sm"><span className="text-xs text-white">✦</span></div>}
-                <div className={`max-w-[82%] rounded-2xl px-4 py-3.5 text-sm leading-relaxed shadow-sm ${m.role==='user' ? 'bg-primary-600 text-white rounded-br-md' : 'bg-white border border-gray-200 rounded-bl-md text-gray-800'}`}>
+                <div className={`min-w-0 max-w-[85%] sm:max-w-[82%] rounded-2xl px-4 py-3.5 text-sm leading-relaxed shadow-sm break-words [overflow-wrap:anywhere] ${m.role==='user' ? 'bg-primary-600 text-white rounded-br-md' : 'bg-white border border-gray-200 rounded-bl-md text-gray-800'}`}>
                   {renderWithLinks(m.text, jobIndex)}
                 </div>
                 {m.role==='user' && <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-medium text-gray-600">You</span></div>}
@@ -846,7 +846,7 @@ function Chat() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="p-4 bg-white border-t border-gray-100">
+          <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-white border-t border-gray-100 shrink-0">
             <div className="flex gap-3 items-end bg-gray-50 rounded-2xl p-2 border border-gray-200 focus-within:border-primary-300 focus-within:ring-4 focus-within:ring-primary-50 transition">
               <textarea
                 value={input}

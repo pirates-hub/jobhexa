@@ -110,6 +110,9 @@ function FloatingAI() {
     .ai-fab, .ai-fab-icon, .ai-fab-ring, .ai-fab::after { animation: none; }
     .ai-fab:hover { transform: none; }
   }
+  @media (pointer: coarse) {
+    .ai-fab { bottom: 88px !important; right: 16px !important; }
+  }
       `}</style>
     </>
   );
