@@ -159,12 +159,32 @@ export const runAllNotificationChecks = async () => {
 
 export const startReminderCron = (opts = {}) => {
   const tz = { timezone: 'Asia/Kolkata' };
-  cron.schedule('30 3 * * *', () => { checkDeadlines().catch(console.error); }, tz); // 9 AM IST
-  cron.schedule('30 2 * * *', () => { checkStudyPlans().catch(console.error); }, tz); // 8 AM IST
-  cron.schedule('0 2 * * *', () => { sendDailyDigest().catch(console.error); }, tz); // 7:30 AM IST digest
+  // NOTE: with `timezone` set, '30 7' means 7:30 AM IST (not UTC).
+  // These were previously '30 3'/'30 2'/'0 2' = 2:00–3:30 AM IST, when a
+  // free-tier instance is always asleep, so mails silently never fired.
+  cron.schedule('30 7 * * *', () => { sendDailyDigest().catch(console.error); }, tz); // 7:30 AM IST digest
+  cron.schedule('0 8 * * *', () => { checkStudyPlans().catch(console.error); }, tz); // 8 AM IST study plans
+  cron.schedule('0 9 * * *', () => { checkDeadlines().catch(console.error); }, tz); // 9 AM IST deadlines
   console.log('[Reminder] Crons: 7:30 AM digest, 8 AM study plans, 9 AM deadlines IST (Asia/Kolkata)');
+  verifySmtpOnBoot();
   if (opts.runOnBoot !== false) {
     // Catch-up: if server was off at cron time, send due mails immediately on boot
     setTimeout(() => runAllNotificationChecks().catch(console.error), 10 * 1000);
   }
 };
+
+// Surface the mail reason in Render logs at every boot: SMTP misconfigured,
+// Gmail rejecting the app password, or all-good. No more silent no-mail days.
+async function verifySmtpOnBoot() {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.error('[Email] SMTP NOT configured (SMTP_USER/SMTP_PASS missing) — mails will be mocked/skipped, nothing is really sent');
+    return;
+  }
+  try {
+    const { getTransporter } = await import('../config/nodemailer.js');
+    await getTransporter().verify();
+    console.log(`[Email] SMTP ready via ${process.env.SMTP_HOST || 'smtp.gmail.com'} as ${process.env.SMTP_USER}`);
+  } catch (e) {
+    console.error(`[Email] SMTP FAILED — no mail can be sent until fixed: ${e.message}`);
+  }
+}
