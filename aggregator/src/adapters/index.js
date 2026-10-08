@@ -6,7 +6,6 @@
 import { fetchUrl } from '../http.js';
 import { discoverHtmlLinks, discoverRssItems } from '../discover.js';
 import { allowedByRobots } from '../robots.js';
-import { logger } from '../logger.js';
 
 async function fetchText(url, source) {
   if (!(await allowedByRobots(url))) {
@@ -82,6 +81,12 @@ export async function pdfAdapter(source) {
 }
 
 export async function extractPdfText(buffer) {
+  if (!buffer?.length) return { ok: false, error: 'empty PDF buffer' };
+  // Many "PDF" links actually return HTML (bot-block / error page).
+  // Bail out early instead of feeding garbage to the parsers.
+  if (buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
+    return { ok: false, error: 'downloaded file is not a PDF (likely an HTML block/error page)' };
+  }
   try {
     const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: buffer });
@@ -89,21 +94,13 @@ export async function extractPdfText(buffer) {
     await parser.destroy().catch(() => {});
     const text = (result?.text || '').replace(/\s+/g, ' ').trim();
     if (text.length > 100) return { ok: true, text };
+    return { ok: false, error: 'PDF has no extractable text (scanned image)' };
   } catch (err) {
-    logger.warn({ err: err.message }, 'pdf-parse failed, trying OCR fallback');
+    return { ok: false, error: `PDF text extraction failed: ${err.message}` };
   }
-  // OCR fallback (optional dependency)
-  try {
-    const Tesseract = await import('tesseract.js');
-    const create = Tesseract.createWorker || Tesseract.default?.createWorker;
-    if (!create) throw new Error('tesseract.js has no createWorker');
-    const worker = await create('eng');
-    const { data } = await worker.recognize(buffer);
-    await worker.terminate().catch(() => {});
-    const text = (data?.text || '').replace(/\s+/g, ' ').trim();
-    if (text.length > 100) return { ok: true, text, ocr: true };
-    return { ok: false, error: 'OCR produced no usable text' };
-  } catch (err) {
-    return { ok: false, error: `PDF text extraction failed and OCR unavailable: ${err.message}` };
-  }
+  // NOTE: no tesseract OCR fallback here on purpose. tesseract.js only reads
+  // image bytes — passing it a PDF buffer makes its worker throw via
+  // process.nextTick, which bypasses try/catch and crashes the entire run
+  // (exit 1) instead of failing just this document. Scanned PDFs need
+  // rasterization first; until then they are recorded as misses, not crashes.
 }
