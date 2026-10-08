@@ -20,7 +20,17 @@ if (args.includes('--once')) {
   try {
     const summary = await runAll({ onlySource: get('--source'), onlyState: get('--state') });
     console.log(JSON.stringify(summary, null, 2));
-    process.exit(summary.failed > 0 ? 2 : 0);
+
+    // External government sites are flaky and frequently reject or timeout.
+    // Treat per-source fetch failures as non-fatal by default; only exit 2 when
+    // the caller explicitly opts into a strict failure policy.
+    const strictSourceFailureMode = process.env.AGG_FAIL_ON_SOURCE_ERRORS === 'true';
+    if (strictSourceFailureMode && summary.failed > 0) {
+      logger.warn({ failed: summary.failed, failures: summary.failures.slice(0, 5) }, 'strict mode: source failures caused exit code 2');
+      process.exit(2);
+    }
+
+    process.exit(0);
   } catch (err) {
     logger.error({ err: err.message }, 'run failed');
     process.exit(1);
