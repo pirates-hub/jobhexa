@@ -34,10 +34,16 @@ const ensureUser = async (profile, provider) => {
 };
 
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  // Strip trailing slashes so `https://app.onrender.com/` + path never
+  // becomes `https://app.onrender.com//api/...` (Google treats that as a
+  // different redirect_uri and returns 400 redirect_uri_mismatch).
+  const backendBase = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/+$/, '');
+  const callbackURL = process.env.GOOGLE_CALLBACK_URL || `${backendBase}/api/auth/google/callback`;
+  console.log(`[OAuth] Google callbackURL: ${callbackURL}`);
   passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: (process.env.BACKEND_URL || 'http://localhost:5000') + '/api/auth/google/callback',
+    callbackURL,
     scope: ['profile', 'email'],
   }, async (accessToken, refreshToken, profile, done) => {
     try { const user = await ensureUser(profile, 'google'); done(null, user); } catch (e) { done(e); }
