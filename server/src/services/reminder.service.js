@@ -67,10 +67,10 @@ export const claimStudyPlanDay = async (userId, planId, day, date = new Date()) 
 };
 
 export const checkStudyPlans = async () => {
+  let sent = 0;
   try {
     const StudyPlan = (await import('../models/StudyPlan.js')).default;
     const plans = await StudyPlan.find({ isActive: true, notifyDaily: true }).populate('user');
-    let sent = 0;
     for (const plan of plans) {
       if (!plan.user || !plan.plan?.length) continue;
       // Auto-advance by calendar: Day N = days since startDate + 1 (capped).
@@ -111,14 +111,15 @@ export const checkStudyPlans = async () => {
             { user: plan.user._id, job: plan._id, notificationType: logKey },
             { method: 'both' }
           );
-        } catch {}
+        } catch (e) { console.error(`[StudyPlan] Email failed for ${plan.user.email}: ${e.message}`); }
       }
       // Advance day for next notification (optional - or keep manual)
       // Auto-advance already handled by calendar above; manual complete-day endpoint also available.
       sent++;
     }
     if (sent > 0) console.log(`[StudyPlan] Sent ${sent} daily notifications`);
-  } catch (e) { console.error('[StudyPlan] Check failed', e.message); }
+    return sent;
+  } catch (e) { console.error('[StudyPlan] Check failed', e.message); return sent; }
 };
 
 export const sendDailyDigest = async () => {
@@ -152,9 +153,9 @@ export const sendDailyDigest = async () => {
 
 export const runAllNotificationChecks = async () => {
   const deadlines = await checkDeadlines().catch((e) => { console.error('[Reminder] deadlines failed', e.message); return 0; });
-  await checkStudyPlans().catch((e) => console.error('[StudyPlan] failed', e.message));
-  await sendDailyDigest().catch((e) => console.error('[Digest] failed', e.message));
-  return { deadlines };
+  const studyPlans = await checkStudyPlans().catch((e) => { console.error('[StudyPlan] failed', e.message); return 0; });
+  const digests = await sendDailyDigest().catch((e) => { console.error('[Digest] failed', e.message); return 0; });
+  return { deadlines, studyPlans, digests };
 };
 
 export const startReminderCron = (opts = {}) => {
