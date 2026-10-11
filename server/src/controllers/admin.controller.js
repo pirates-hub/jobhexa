@@ -213,12 +213,21 @@ export const sendManualMail = async (req, res) => {
   for (const r of recipients) {
     if (!r.email || !r.email.includes('@')) { errs.push(`${r.email || r._id}: invalid email`); continue; }
     try {
-      await sendEmail({
+      const info = await sendEmail({
         to: r.email,
         subject,
         html: html || `<p>${String(message).replace(/\n/g, '<br>')}</p>`,
         text: message || html?.replace(/<[^>]+>/g, ' '),
       });
+      // Mock/skipped sends resolve without delivering — never count them.
+      if (String(info?.messageId || '').startsWith('mock-')) {
+        errs.push(`${r.email}: SMTP not configured on server (mock mode — nothing was actually sent; set SMTP_USER/SMTP_PASS on Render)`);
+        continue;
+      }
+      if (info?.messageId === 'skipped-fake-domain') {
+        errs.push(`${r.email}: skipped (non-deliverable test domain)`);
+        continue;
+      }
       // Also create in-app notification so it shows in bell
       if (r._id) {
         await Notification.create({
