@@ -1,4 +1,9 @@
 import nodemailer from 'nodemailer';
+import dns from 'node:dns';
+
+// Render hosts have no IPv6 route, but smtp.gmail.com resolves IPv6-first,
+// producing `connect ENETUNREACH <ipv6>:587` on every send. Prefer IPv4.
+try { dns.setDefaultResultOrder('ipv4first'); } catch {}
 
 let transporter = null;
 let emailQueue = [];
@@ -15,6 +20,11 @@ export const getTransporter = () => {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    // Timeouts: without these a blackholed SMTP connection hangs forever,
+    // wedging the queue so every later mail silently never sends.
+    connectionTimeout: 20000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
     pool: true,
     maxConnections: 3,
     maxMessages: 100,
