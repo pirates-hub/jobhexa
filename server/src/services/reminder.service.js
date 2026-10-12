@@ -177,6 +177,10 @@ export const startReminderCron = (opts = {}) => {
 // Surface the mail reason in Render logs at every boot: SMTP misconfigured,
 // Gmail rejecting the app password, or all-good. No more silent no-mail days.
 async function verifySmtpOnBoot() {
+  if (process.env.BREVO_API_KEY) {
+    console.log('[Email] Brevo HTTP API mode — SMTP ports not needed');
+    return;
+  }
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     console.error('[Email] SMTP NOT configured (SMTP_USER/SMTP_PASS missing) — mails will be mocked/skipped, nothing is really sent');
     return;

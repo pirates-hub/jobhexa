@@ -60,6 +60,31 @@ const processQueue = async () => {
         continue;
       }
       const t = getTransporter();
+      // HTTP API path (Brevo): port 443 is always open, unlike SMTP/587
+      // which this host blocks. Set BREVO_API_KEY to use it.
+      if (process.env.BREVO_API_KEY) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 25000);
+        try {
+          const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({
+              sender: { email: process.env.EMAIL_SENDER || process.env.SMTP_FROM || process.env.SMTP_USER, name: 'JobHexa' },
+              to: [{ email: to }],
+              subject,
+              htmlContent: html || undefined,
+              textContent: text || undefined,
+            }),
+            signal: ctrl.signal,
+          });
+          if (!resp.ok) throw new Error(`Brevo rejected (${resp.status}): ${(await resp.text()).slice(0, 200)}`);
+          const data = await resp.json();
+          console.log(`[Email Sent via Brevo] To: ${to}, Subject: ${subject}, ID: ${data.messageId}`);
+          resolve({ messageId: data.messageId || `brevo-${Date.now()}` });
+          continue;
+        } finally { clearTimeout(timer); }
+      }
       const info = await t.sendMail({
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
         to,
