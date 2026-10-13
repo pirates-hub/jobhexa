@@ -22,6 +22,11 @@ function renderWithLinks(text, jobIndex = {}) {
           const byTitle = jobIndex[key];
           href = byTitle ? `/jobs/${byTitle}` : '/jobs';
         }
+        return <a key={i} href={href} className="text-primary-600 hover:underline font-medium">{match[1]}</a>;
+      }
+      // External links (e.g. AI-written [Apply](https://...)) open in a new tab
+      if (/^https?:\/\//.test(href)) {
+        return <a key={i} href={href} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline font-medium break-all">{match[1]}</a>;
       }
       return <a key={i} href={href} className="text-primary-600 hover:underline font-medium">{match[1]}</a>;
     }
@@ -38,8 +43,24 @@ function renderWithLinks(text, jobIndex = {}) {
   });
 }
 
-function RightPanel({ data, onSaveJob, jobIndex = {} }) {
-  const [started, setStarted] = useState(false);
+// Direct apply URL when the job has one distinct from its homepage;
+// otherwise fall back to the job page's how-to-apply section.
+function applyUrlOf(job) {
+  const url = job?.applyLink || job?.officialApplyUrl;
+  return url && url !== job?.officialWebsite ? url : null;
+}
+
+function ChatApplyButton({ job, size = 'sm' }) {
+  const url = applyUrlOf(job);
+  const cls = size === 'lg'
+    ? 'inline-flex items-center gap-2 bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition shadow-sm'
+    : 'text-xs bg-green-600 text-white px-3.5 py-1.5 rounded-lg hover:bg-green-700 transition font-medium whitespace-nowrap';
+  if (url) return <a href={url} target="_blank" rel="noopener noreferrer" className={cls}>Apply Now ↗</a>;
+  if (job?.slug) return <Link to={`/jobs/${job.slug}#how-to-apply`} className={cls}>How to Apply →</Link>;
+  return null;
+}
+
+function RightPanel({ data, onSaveJob, jobIndex = {} }) {  const [started, setStarted] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
   const startPlan = async () => {
@@ -163,8 +184,9 @@ function RightPanel({ data, onSaveJob, jobIndex = {} }) {
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 mb-3">{job.department} • {job.examType?.toUpperCase()} • {job.state}</p>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Link to={`/jobs/${job.slug}`} className="text-xs bg-primary-600 text-white px-3.5 py-1.5 rounded-lg hover:bg-primary-700 transition">View Details</Link>
+                  <ChatApplyButton job={job} />
                   <button onClick={() => onSaveJob(job)} className="text-xs border border-gray-200 bg-white px-3.5 py-1.5 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition">Save</button>
                 </div>
               </div>
@@ -220,6 +242,7 @@ function RightPanel({ data, onSaveJob, jobIndex = {} }) {
         )}
         <div className="flex flex-wrap gap-2.5 pt-2">
           <Link to={`/jobs/${job.slug}`} className="bg-primary-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-primary-700 transition shadow-sm">View Job</Link>
+          <ChatApplyButton job={job} size="lg" />
           {job.officialWebsite && <a href={job.officialWebsite} target="_blank" rel="noopener noreferrer" className="border border-gray-200 bg-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition">Official Website ↗</a>}
           {job.notificationPdfUrl && <a href={job.notificationPdfUrl} target="_blank" rel="noopener noreferrer" className="border border-gray-200 bg-white px-5 py-2.5 rounded-xl text-sm hover:bg-gray-50 transition">PDF ↗</a>}
           <button onClick={()=>onSaveJob(job)} className="bg-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700 transition shadow-sm">Save Job</button>
@@ -396,8 +419,9 @@ function RightPanel({ data, onSaveJob, jobIndex = {} }) {
                 <span className="text-xs bg-green-100 text-green-700 px-2.5 py-1 rounded-full font-medium whitespace-nowrap">{score}%</span>
               </div>
               <p className="text-xs text-gray-500 mb-3">{job.department} • {job.examType?.toUpperCase()} • {job.state}</p>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Link to={`/jobs/${job.slug}`} className="text-xs bg-primary-600 text-white px-3.5 py-1.5 rounded-lg hover:bg-primary-700">View</Link>
+                <ChatApplyButton job={job} />
                 <button onClick={()=>onSaveJob(job)} className="text-xs border border-gray-200 bg-white px-3.5 py-1.5 rounded-lg hover:bg-gray-50">Save</button>
               </div>
             </div>
@@ -438,8 +462,9 @@ function RightPanel({ data, onSaveJob, jobIndex = {} }) {
                 <span className="text-xs bg-green-100 text-green-700 px-2.5 py-1 rounded-full font-medium whitespace-nowrap">{score}%</span>
               </div>
               <p className="text-xs text-gray-500 mb-3">{job.department} • {job.examType?.toUpperCase()} • {job.state}</p>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Link to={`/jobs/${job.slug}`} className="text-xs bg-primary-600 text-white px-3.5 py-1.5 rounded-lg hover:bg-primary-700">View</Link>
+                <ChatApplyButton job={job} />
                 <button onClick={()=>onSaveJob(job)} className="text-xs border border-gray-200 bg-white px-3.5 py-1.5 rounded-lg hover:bg-gray-50">Save</button>
               </div>
             </div>
