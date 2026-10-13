@@ -151,6 +151,7 @@ export const getOverview = async (req, res) => {
   ]);
   const byMethod = await NotificationLog.aggregate([{ $group: { _id: '$method', count: { $sum: 1 } } }]);
   const crons = [
+    { name: 'Eligible-jobs mail', schedule: '0 7 * * *', ist: '7 AM IST daily' },
     { name: 'Daily digest', schedule: '30 7 * * *', ist: '7:30 AM IST daily' },
     { name: 'Study plans', schedule: '0 8 * * *', ist: '8 AM IST daily' },
     { name: 'Deadline reminders (7/3/1/0)', schedule: '0 9 * * *', ist: '9 AM IST daily' },

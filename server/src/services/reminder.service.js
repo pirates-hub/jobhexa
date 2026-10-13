@@ -151,11 +151,60 @@ export const sendDailyDigest = async () => {
   return sent;
 };
 
+export const sendEligibleDigest = async () => {
+  console.log('[Eligible] Building daily eligible-jobs mails...');
+  try {
+    const { checkEligibility } = await import('./eligibility.service.js');
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const jobs = await Job.find({ jobStatus: { $in: ['active', 'closing_soon'] }, verificationStatus: 'verified' })
+      .sort({ applicationEndDate: 1 }).limit(50);
+    if (!jobs.length) return 0;
+    const users = await User.find({ email: { $exists: true, $ne: '' } }).limit(500);
+    const base = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+    let sent = 0;
+    for (const user of users) {
+      const already = await Notification.findOne({ user: user._id, type: 'system', title: { $regex: '^You are eligible' }, createdAt: { $gte: new Date(todayStr) } });
+      if (already) continue;
+      const matches = [];
+      for (const j of jobs) {
+        try {
+          const r = checkEligibility(user, j);
+          if (r?.eligible) matches.push({ job: j, score: r.score || 0 });
+        } catch {}
+        if (matches.length >= 8) break;
+      }
+      if (!matches.length) continue; // no mail when nothing matches (saves quota)
+      matches.sort((a, b) => b.score - a.score);
+      const dl = (d) => (d ? new Date(d).toLocaleDateString('en-IN') : 'see notice');
+      const textLines = matches.map(({ job: j }, i) => `${i + 1}. ${j.title} — last date: ${dl(j.applicationEndDate)} — ${base}/jobs/${j.slug}`).join('\n');
+      const htmlLines = matches.map(({ job: j }) => `<li><a href="${base}/jobs/${j.slug}"><strong>${j.title}</strong></a> — last date: ${dl(j.applicationEndDate)}</li>`).join('');
+      const title = `You are eligible for ${matches.length} job(s) today`;
+      await Notification.create({ user: user._id, type: 'system', title, message: `You are eligible for these ${matches.length} job(s) today:\n${textLines}` });
+      if (user.notificationPreferences?.email !== false && user.email) {
+        try {
+          const { sendEmail } = await import('../config/nodemailer.js');
+          await sendEmail({
+            to: user.email,
+            subject: `${title} — JobHexa`,
+            html: `<h2>${title}</h2><p>Hi ${user.name || ''}, based on your profile you can apply for:</p><ol>${htmlLines}</ol><p>Deadlines approach fast — apply early.</p>`,
+            text: `Hi ${user.name || ''}, you are eligible for:\n${textLines}`,
+          });
+        } catch (e) { console.error(`[Eligible] Email failed for ${user.email}: ${e.message}`); }
+      }
+      sent++;
+    }
+    console.log(`[Eligible] Sent ${sent} eligible digests`);
+    return sent;
+  } catch (e) { console.error('[Eligible] failed', e.message); return 0; }
+};
+
 export const runAllNotificationChecks = async () => {
   const deadlines = await checkDeadlines().catch((e) => { console.error('[Reminder] deadlines failed', e.message); return 0; });
   const studyPlans = await checkStudyPlans().catch((e) => { console.error('[StudyPlan] failed', e.message); return 0; });
   const digests = await sendDailyDigest().catch((e) => { console.error('[Digest] failed', e.message); return 0; });
-  return { deadlines, studyPlans, digests };
+  const eligible = await sendEligibleDigest().catch((e) => { console.error('[Eligible] failed', e.message); return 0; });
+  return { deadlines, studyPlans, digests, eligible };
 };
 
 export const startReminderCron = (opts = {}) => {
@@ -164,9 +213,10 @@ export const startReminderCron = (opts = {}) => {
   // These were previously '30 3'/'30 2'/'0 2' = 2:00–3:30 AM IST, when a
   // free-tier instance is always asleep, so mails silently never fired.
   cron.schedule('30 7 * * *', () => { sendDailyDigest().catch(console.error); }, tz); // 7:30 AM IST digest
+  cron.schedule('0 7 * * *', () => { sendEligibleDigest().catch(console.error); }, tz); // 7 AM IST eligible-jobs mail
   cron.schedule('0 8 * * *', () => { checkStudyPlans().catch(console.error); }, tz); // 8 AM IST study plans
   cron.schedule('0 9 * * *', () => { checkDeadlines().catch(console.error); }, tz); // 9 AM IST deadlines
-  console.log('[Reminder] Crons: 7:30 AM digest, 8 AM study plans, 9 AM deadlines IST (Asia/Kolkata)');
+  console.log('[Reminder] Crons: 7 AM eligible mail, 7:30 AM digest, 8 AM study plans, 9 AM deadlines IST (Asia/Kolkata)');
   verifySmtpOnBoot();
   if (opts.runOnBoot !== false) {
     // Catch-up: if server was off at cron time, send due mails immediately on boot

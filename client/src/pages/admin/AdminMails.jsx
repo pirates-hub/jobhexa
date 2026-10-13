@@ -68,6 +68,7 @@ function AdminMails() {
           <div className="bg-white rounded-[24px] border border-slate-200 p-6 shadow-sm">
             <h2 className="font-extrabold text-slate-900">How mails work</h2>
             <ul className="mt-3 text-sm text-slate-600 space-y-2 list-disc pl-5">
+              <li><b>Daily 7 AM</b> — "you are eligible" mail (matched jobs)</li>
               <li><b>Daily 7:30 AM</b> — digest (open jobs)</li>
               <li><b>9 AM</b> — deadline reminders (7/3/1/0 days)</li>
               <li><b>8 AM</b> — study plan Day N (only if user started a plan)</li>
