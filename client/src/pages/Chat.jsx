@@ -18,9 +18,16 @@ function renderWithLinks(text, jobIndex = {}) {
       // Repair model-written job URLs: /jobs/<raw title> -> /jobs/<slug>
       if (href.startsWith('/jobs/')) {
         const key = href.slice(6).trim().toLowerCase();
-        if (!/^[a-z0-9-]+$/.test(key) || !jobIndex[key]) {
-          const byTitle = jobIndex[key];
-          href = byTitle ? `/jobs/${byTitle}` : '/jobs';
+        if (jobIndex[key]) {
+          href = `/jobs/${jobIndex[key]}`;
+        } else if (!/^[a-z0-9-]+$/.test(key)) {
+          // Raw title text, not a slug — only then fall back to the list.
+          // A slug-shaped key is trusted as-is: the catalog cache holds just
+          // 100 jobs, so a valid slug may simply be absent from the index.
+          // (JobDetail shows a clean error if it truly doesn't exist.)
+          href = '/jobs';
+        } else {
+          href = `/jobs/${key}`;
         }
         return <a key={i} href={href} className="text-primary-600 hover:underline font-medium">{match[1]}</a>;
       }
@@ -60,7 +67,7 @@ function ChatApplyButton({ job, size = 'sm' }) {
   return null;
 }
 
-function RightPanel({ data, onSaveJob, jobIndex = {} }) {  const [started, setStarted] = useState(false);
+function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest }) {  const [started, setStarted] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
   const startPlan = async () => {
@@ -92,13 +99,13 @@ function RightPanel({ data, onSaveJob, jobIndex = {} }) {  const [started, setSt
               { q: '30-day plan for SSC CGL', icon: '🗓️', desc: 'Personalized study plan' },
               { q: 'Interview questions for SSC CGL', icon: '🎤', desc: 'Mock interview prep' },
             ].map(item => (
-              <div key={item.q} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-3 text-left">
+              <button key={item.q} onClick={() => onSuggest?.(item.q)} className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl px-4 py-3 text-left w-full hover:shadow-sm hover:border-primary-200 transition group">
                 <span className="text-base">{item.icon}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-800 text-sm">{item.q}</p>
+                  <p className="font-medium text-gray-800 text-sm group-hover:text-primary-700">{item.q}</p>
                   <p className="text-xs text-gray-400">{item.desc}</p>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
       </div>
@@ -534,7 +541,7 @@ function Chat() {
   const [catalogIndex, setCatalogIndex] = useState({});
   useEffect(() => {
     if (!user) return;
-    jobService.getJobs({ limit: 100 }).then((res) => {
+    jobService.getJobs({ limit: 500 }).then((res) => {
       const map = {};
       (res.data.data.jobs || []).forEach((j) => {
         if (j.slug) map[j.slug.toLowerCase()] = j.slug;
@@ -772,9 +779,10 @@ function Chat() {
     }
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
-    const userText = input;
+  const sendMessage = async (overrideText) => {
+    const raw = typeof overrideText === 'string' ? overrideText : input;
+    if (!raw.trim() || loading) return;
+    const userText = raw;
     setMessages(prev => [...prev, { role: 'user', text: userText }]);
     setInput('');
     setLoading(true);
@@ -899,7 +907,7 @@ function Chat() {
             {rightData && <button onClick={()=>setRightData(null)} className="text-xs text-gray-400 hover:text-gray-600 bg-gray-50 hover:bg-white border border-transparent hover:border-gray-200 px-3 py-1.5 rounded-full transition">Clear</button>}
           </div>
           <div className="flex-1 overflow-y-auto">
-            <RightPanel data={rightData} onSaveJob={handleSaveJob} />
+            <RightPanel data={rightData} onSaveJob={handleSaveJob} onSuggest={(q) => { setInput(q); sendMessage(q); }} />
           </div>
         </div>
       </div>
