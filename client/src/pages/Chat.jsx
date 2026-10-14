@@ -621,15 +621,21 @@ function Chat() {
         } catch {}
       }
 
-      if (lower.includes('study plan') || lower.includes('day plan') || /\b\d+\s*-?\s*days?\b/.test(lower) || lower.includes(' day ') || lower.includes('days') || lower.includes('day-') || lower.includes('-day')) {
+      if (lower.includes('study plan') || lower.includes('day plan') || lower.includes('week plan') || lower.includes('month plan') || /\b\d+\s*-?\s*(days?|weeks?|months?)\b/.test(lower) || lower.includes(' day ') || lower.includes('days') || lower.includes('day-') || lower.includes('-day')) {
         try {
           let exam = 'SSC CGL';
           if (lower.includes('upsc')) exam = 'UPSC';
           else if (lower.includes('ibps')) exam = 'IBPS PO';
           else if (lower.includes('rrb')) exam = 'RRB NTPC';
           else if (lower.includes('tnpsc')) exam = 'TNPSC';
-          const daysMatch = lower.match(/(\d+)\s*day/);
-          const days = daysMatch ? Math.min(Math.max(parseInt(daysMatch[1]), 1), 90) : 30;
+          const durMatch = lower.match(/(\d+)\s*-?\s*(day|week|month)/);
+          let days = 30;
+          if (durMatch) {
+            const n = parseInt(durMatch[1]);
+            const unit = durMatch[2];
+            days = unit.startsWith('week') ? n * 7 : unit.startsWith('month') ? n * 30 : n;
+          }
+          days = Math.min(Math.max(days, 1), 90);
           const res = await api.post('/chat/study-plan', { exam, days });
           const planData = res.data?.data?.plan;
           const planArray = Array.isArray(planData) ? planData : planData?.plan || [];
