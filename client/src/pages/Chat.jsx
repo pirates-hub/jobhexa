@@ -66,10 +66,11 @@ function ChatApplyButton({ job, size = 'sm' }) {
   if (job?.slug) return <Link to={`/jobs/${job.slug}#how-to-apply`} className={cls}>How to Apply →</Link>;
   return null;
 }
-
-function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest }) {  const [started, setStarted] = useState(false);
+function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest }) {
+  const [started, setStarted] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
+  const [expanded, setExpanded] = useState(false);
   const startPlan = async () => {
     setStarting(true); setStartMsg('');
     try {
@@ -397,8 +398,9 @@ function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest }) {  const [sta
           </>
         )}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-gray-500">Preview (first 3 days):</p>
-          {data.plan?.slice(0,3).map(d => (
+          <p className="text-xs font-medium text-gray-500">Preview {expanded ? `(all ${data.plan?.length || 0} days)` : '(first 3 days)'}:</p>
+          <div className={expanded ? 'space-y-2 max-h-[420px] overflow-y-auto pr-1' : 'space-y-2'}>
+          {data.plan?.slice(0, expanded ? undefined : 3).map(d => (
             <div key={d.day} className="bg-white border border-gray-200 rounded-xl p-3">
               <div className="flex justify-between items-start mb-1">
                 <span className="text-xs font-bold bg-primary-100 text-primary-700 px-2 py-1 rounded-full">Day {d.day}</span>
@@ -407,7 +409,13 @@ function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest }) {  const [sta
               <p className="font-medium text-sm text-gray-900">{d.topic}</p>
             </div>
           ))}
-          <p className="text-xs text-center text-gray-400">+ {(data.plan?.length || 30) - 3} more days on My Plan page</p>
+          </div>
+          {(data.plan?.length || 30) > 3 && (
+            <button onClick={() => setExpanded(!expanded)} className="w-full text-xs font-bold text-primary-700 hover:text-primary-800 bg-primary-50 hover:bg-primary-100 rounded-xl py-2.5 transition">
+              {expanded ? 'Show less ↑' : `Show all ${data.plan?.length || 30} days ↓`}
+            </button>
+          )}
+          <p className="text-xs text-center text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2.5">⚠ Preview is not saved — press <b>▶ Start Plan Now</b> above first, otherwise it disappears when you leave.</p>
         </div>
       </div>
     );
