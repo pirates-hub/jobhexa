@@ -621,7 +621,7 @@ function Chat() {
         } catch {}
       }
 
-      if (lower.includes('study plan') || lower.includes('day plan') || lower.includes(' day ') || lower.includes('days')) {
+      if (lower.includes('study plan') || lower.includes('day plan') || /\b\d+\s*-?\s*days?\b/.test(lower) || lower.includes(' day ') || lower.includes('days') || lower.includes('day-') || lower.includes('-day')) {
         try {
           let exam = 'SSC CGL';
           if (lower.includes('upsc')) exam = 'UPSC';
