@@ -22,6 +22,8 @@ export default [
 
   // General Awareness
   { name: "Current Affairs", slug: "current-affairs", subjectName: "General Awareness", description: "Recent national and international events", difficulty: "medium", estimatedHours: 10 },
+  { name: "GK Mock Test", slug: "gk-mock-test", subjectName: "General Awareness", description: "Full-length 30-question General Knowledge mock tests with explanations — attempt, mark weak areas, review", difficulty: "medium", estimatedHours: 2 },
+  { name: "Final Review & Strategy Planning", slug: "final-review-strategy-planning", subjectName: "General Awareness", description: "Final revision framework and exam-day strategy planning for upcoming government exams", difficulty: "easy", estimatedHours: 2 },
   { name: "Static GK", slug: "static-gk", subjectName: "General Awareness", description: "Important facts about India and the world", difficulty: "easy", estimatedHours: 8 },
   { name: "Awards & Honours", slug: "awards-honours", subjectName: "General Awareness", description: "National and international awards and recipients", difficulty: "easy", estimatedHours: 3 },
   { name: "Books & Authors", slug: "books-authors", subjectName: "General Awareness", description: "Important books and their authors", difficulty: "easy", estimatedHours: 2 },

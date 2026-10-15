@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import AdminAuditLog from '../models/AdminAuditLog.js';
 import Notification from '../models/Notification.js';
 import NotificationLog from '../models/NotificationLog.js';
+import slugify from 'slugify';
 import { sendEmail } from '../config/nodemailer.js';
 import { notifyNewJobTelegram } from '../services/telegram.service.js';
 
@@ -173,6 +174,29 @@ export const getCrawlHistory = async (req, res) => {
     CollectionRun.countDocuments(),
   ]);
   res.json({ success: true, data: { runs, total, page, limit } });
+};
+
+// Admin: create a preparation topic (idempotent by slug)
+export const createTopic = async (req, res) => {
+  try {
+    const { default: Subject } = await import('../models/Subject.js');
+    const { default: Topic } = await import('../models/Topic.js');
+    const { name, slug, subjectName, subjectSlug, description, difficulty, estimatedHours } = req.body;
+    if (!name) return res.status(400).json({ success: false, message: 'name required' });
+    const subject = subjectSlug
+      ? await Subject.findOne({ slug: subjectSlug })
+      : await Subject.findOne({ name: new RegExp(`^${String(subjectName || '').trim()}$`, 'i') });
+    if (!subject) return res.status(404).json({ success: false, message: 'Subject not found — check subjectName' });
+    const finalSlug = slug || slugify(name, { lower: true, strict: true });
+    const exists = await Topic.findOne({ slug: finalSlug });
+    if (exists) return res.json({ success: true, data: { topic: exists, message: 'Topic already exists' } });
+    const topic = await Topic.create({
+      name, slug: finalSlug, subject: subject._id,
+      description: description || '', difficulty: difficulty || 'medium', estimatedHours: estimatedHours || 2,
+    });
+    await logAction(req.user._id, 'create_topic', 'Topic', topic._id, { name }, req.ip);
+    res.json({ success: true, data: { topic } });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
 // How mails were sent — unified log for admin panel

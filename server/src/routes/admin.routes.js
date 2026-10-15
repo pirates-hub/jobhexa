@@ -66,4 +66,5 @@ router.get('/audit-logs', adminCtrl.getAuditLogs);
 router.get('/crawls', adminCtrl.getCrawlHistory);
 router.get('/mails/logs', adminCtrl.getMailLogs);
 router.post('/mails/send', adminCtrl.sendManualMail);
+router.post('/prep/topics', adminCtrl.createTopic);
 export default router;
