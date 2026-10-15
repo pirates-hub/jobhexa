@@ -10,7 +10,17 @@ const wordsOf = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ')
 
 export function topicSlugFor(text, index) {
   if (!text || !index?.length) return null;
-  const slugGuess = String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const lower = String(text).toLowerCase();
+  // Hand aliases for short/generic plan labels whose words never match.
+  const ALIASES = [
+    { slug: 'gk-mock-test', keys: ['mock test', 'gk mock', 'full-length gk'] },
+    { slug: 'final-review-strategy-planning', keys: ['final review', 'strategy planning'] },
+  ];
+  for (const a of ALIASES) {
+    if (!index.some((t) => t.slug === a.slug)) continue;
+    if (a.keys.some((k) => lower.includes(k))) return a.slug;
+  }
+  const slugGuess = lower.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const direct = index.find((t) => t.slug === slugGuess);
   if (direct) return direct.slug;
   const q = new Set(wordsOf(text));

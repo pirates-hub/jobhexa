@@ -24,6 +24,9 @@ export default [
   { name: "Current Affairs", slug: "current-affairs", subjectName: "General Awareness", description: "Recent national and international events", difficulty: "medium", estimatedHours: 10 },
   { name: "GK Mock Test", slug: "gk-mock-test", subjectName: "General Awareness", description: "Full-length 30-question General Knowledge mock tests with explanations — attempt, mark weak areas, review", difficulty: "medium", estimatedHours: 2 },
   { name: "Final Review & Strategy Planning", slug: "final-review-strategy-planning", subjectName: "General Awareness", description: "Final revision framework and exam-day strategy planning for upcoming government exams", difficulty: "easy", estimatedHours: 2 },
+  { name: "Important Days & Dates", slug: "important-days-dates", subjectName: "General Awareness", description: "National and international days, dates and observances for GK", difficulty: "easy", estimatedHours: 2 },
+  { name: "Indian States & Capitals", slug: "indian-states-capitals", subjectName: "General Awareness", description: "States, capitals, chief ministers and governors of India", difficulty: "easy", estimatedHours: 2 },
+  { name: "Important Organizations", slug: "important-organizations", subjectName: "General Awareness", description: "UN, WTO, WHO and other national and international organizations", difficulty: "easy", estimatedHours: 2 },
   { name: "Static GK", slug: "static-gk", subjectName: "General Awareness", description: "Important facts about India and the world", difficulty: "easy", estimatedHours: 8 },
   { name: "Awards & Honours", slug: "awards-honours", subjectName: "General Awareness", description: "National and international awards and recipients", difficulty: "easy", estimatedHours: 3 },
   { name: "Books & Authors", slug: "books-authors", subjectName: "General Awareness", description: "Important books and their authors", difficulty: "easy", estimatedHours: 2 },
@@ -31,6 +34,8 @@ export default [
 
   // General Science
   { name: "Physics", slug: "physics", subjectName: "General Science", description: "Basic physics concepts and laws", difficulty: "medium", estimatedHours: 6 },
+  { name: "Science & Tech Recent Innovations", slug: "science-tech-recent-innovations", subjectName: "General Science", description: "Recent innovations, ISRO missions and AI breakthroughs", difficulty: "medium", estimatedHours: 3 },
+  { name: "Science & Tech Recent Developments", slug: "science-tech-recent-developments", subjectName: "General Science", description: "Recent developments in science and technology for revision", difficulty: "medium", estimatedHours: 3 },
   { name: "Chemistry", slug: "chemistry", subjectName: "General Science", description: "Basic chemistry concepts and reactions", difficulty: "medium", estimatedHours: 6 },
   { name: "Biology", slug: "biology", subjectName: "General Science", description: "Human biology, diseases, and nutrition", difficulty: "medium", estimatedHours: 5 },
   { name: "Environment", slug: "environment", subjectName: "General Science", description: "Ecology, pollution, and environmental issues", difficulty: "easy", estimatedHours: 3 },
@@ -49,6 +54,7 @@ export default [
   { name: "Parliament", slug: "parliament", subjectName: "Indian Polity", description: "Lok Sabha, Rajya Sabha, and legislative procedures", difficulty: "medium", estimatedHours: 4 },
   { name: "Judiciary", slug: "judiciary", subjectName: "Indian Polity", description: "Supreme Court, High Courts, and judicial system", difficulty: "medium", estimatedHours: 3 },
   { name: "Panchayati Raj", slug: "panchayati-raj", subjectName: "Indian Polity", description: "Local self-governance and 73rd Amendment", difficulty: "easy", estimatedHours: 2 },
+  { name: "Key Articles & Amendments", slug: "key-articles-amendments", subjectName: "Indian Polity", description: "Important constitutional articles and amendments for quick revision", difficulty: "medium", estimatedHours: 3 },
 
   // History
   { name: "Ancient India", slug: "ancient-india", subjectName: "History", description: "Indus Valley, Vedic period, Maurya and Gupta empires", difficulty: "medium", estimatedHours: 5 },

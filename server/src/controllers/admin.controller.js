@@ -176,26 +176,33 @@ export const getCrawlHistory = async (req, res) => {
   res.json({ success: true, data: { runs, total, page, limit } });
 };
 
-// Admin: create a preparation topic (idempotent by slug)
+// Admin: create preparation topic(s) — idempotent by slug.
+// Accepts a single body or { topics: [...] } for bulk creation.
 export const createTopic = async (req, res) => {
   try {
     const { default: Subject } = await import('../models/Subject.js');
     const { default: Topic } = await import('../models/Topic.js');
-    const { name, slug, subjectName, subjectSlug, description, difficulty, estimatedHours } = req.body;
-    if (!name) return res.status(400).json({ success: false, message: 'name required' });
-    const subject = subjectSlug
-      ? await Subject.findOne({ slug: subjectSlug })
-      : await Subject.findOne({ name: new RegExp(`^${String(subjectName || '').trim()}$`, 'i') });
-    if (!subject) return res.status(404).json({ success: false, message: 'Subject not found — check subjectName' });
-    const finalSlug = slug || slugify(name, { lower: true, strict: true });
-    const exists = await Topic.findOne({ slug: finalSlug });
-    if (exists) return res.json({ success: true, data: { topic: exists, message: 'Topic already exists' } });
-    const topic = await Topic.create({
-      name, slug: finalSlug, subject: subject._id,
-      description: description || '', difficulty: difficulty || 'medium', estimatedHours: estimatedHours || 2,
-    });
-    await logAction(req.user._id, 'create_topic', 'Topic', topic._id, { name }, req.ip);
-    res.json({ success: true, data: { topic } });
+    const list = Array.isArray(req.body?.topics) ? req.body.topics : [req.body];
+    const created = [];
+    const skipped = [];
+    for (const item of list) {
+      const { name, slug, subjectName, subjectSlug, description, difficulty, estimatedHours } = item || {};
+      if (!name) { skipped.push('(missing name)'); continue; }
+      const subject = subjectSlug
+        ? await Subject.findOne({ slug: subjectSlug })
+        : await Subject.findOne({ name: new RegExp(`^${String(subjectName || '').trim()}$`, 'i') });
+      if (!subject) { skipped.push(`${name} (subject not found)`); continue; }
+      const finalSlug = slug || slugify(name, { lower: true, strict: true });
+      const exists = await Topic.findOne({ slug: finalSlug });
+      if (exists) { skipped.push(`${name} (already exists)`); continue; }
+      const topic = await Topic.create({
+        name, slug: finalSlug, subject: subject._id,
+        description: description || '', difficulty: difficulty || 'medium', estimatedHours: estimatedHours || 2,
+      });
+      created.push({ name, slug: finalSlug });
+    }
+    await logAction(req.user._id, 'create_topic', 'Topic', null, { created: created.length, skipped: skipped.length }, req.ip);
+    res.json({ success: true, data: { created, skipped } });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
