@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Loader from '../components/common/Loader';
 import EmptyState from '../components/common/EmptyState';
+import TopicLink from '../components/prep/TopicLink';
 
 function MyPlan() {
   const { user, loading: authLoading } = useAuth();
@@ -81,7 +82,7 @@ function MyPlan() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-extrabold">Today: Day {plan.currentDay}</p>
-                <p className="text-sm font-bold text-primary-700 line-clamp-1">{plan.plan[plan.currentDay-1]?.topic}</p>
+                <TopicLink text={plan.plan[plan.currentDay-1]?.topic} className="text-sm font-bold text-primary-700 line-clamp-1 hover:underline" />
                 <p className="text-xs font-medium text-slate-500 mt-1">{plan.plan[plan.currentDay-1]?.hours}h - {plan.plan[plan.currentDay-1]?.subject}</p>
               </div>
             </div>
@@ -135,7 +136,7 @@ function MyPlan() {
                     </div>
                     <span className="inline-flex items-center gap-2 rounded-full bg-white border border-slate-200 px-4 py-1.5 text-xs font-bold text-slate-600 shadow-sm">{d.hours}h - {d.subject}</span>
                   </div>
-                  <p className="font-bold text-slate-900 mt-4 text-[15px] leading-snug tracking-tight">{d.topic}</p>
+                  <TopicLink text={d.topic} className="font-bold text-slate-900 mt-4 text-[15px] leading-snug tracking-tight hover:text-primary-700 hover:underline block" />
                   <ul className="mt-4 grid sm:grid-cols-2 gap-2.5">
                     {d.tasks?.slice(0,4).map((t,i)=>(
                       <li key={i} className={`flex gap-3 text-xs font-medium rounded-xl px-4 py-3 border transition ${isCurrent ? 'bg-white border-primary-100 text-slate-700 shadow-sm' : isPast ? 'bg-white/70 border-emerald-100 text-slate-600' : 'bg-slate-50 border-slate-100 text-slate-600 hover:bg-white hover:border-slate-200'}`}>

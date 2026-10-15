@@ -6,6 +6,7 @@ import api from '../services/api';
 import jobService from '../services/jobService';
 import JobCard from '../components/jobs/JobCard';
 import Badge from '../components/common/Badge';
+import TopicLink from '../components/prep/TopicLink';
 import { formatDate, formatCurrency, daysUntil, getDeadlineColor, getJobStatusBadge } from '../utils/helpers';
 
 function renderWithLinks(text, jobIndex = {}) {
@@ -408,7 +409,7 @@ function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest, onPlanStarted }
                 <span className="text-xs font-bold bg-primary-100 text-primary-700 px-2 py-1 rounded-full">Day {d.day}</span>
                 <span className="text-xs text-gray-500">{d.hours}h • {d.subject}</span>
               </div>
-              <p className="font-medium text-sm text-gray-900">{d.topic}</p>
+              <p className="font-medium text-sm text-gray-900"><TopicLink text={d.topic} className="hover:text-primary-700 hover:underline" /></p>
             </div>
           ))}
           </div>

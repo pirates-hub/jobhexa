@@ -56,6 +56,16 @@ export const getTopicBySlug = async (req, res) => {
   }
 };
 
+// Light index for client-side linking of free-text plan topics to topic pages.
+export const getTopicIndex = async (req, res) => {
+  try {
+    const topics = await Topic.find().select('name slug').sort({ name: 1 }).limit(2000);
+    return successResponse(res, { topics });
+  } catch (error) {
+    return errorResponse(res, error.message, 500);
+  }
+};
+
 export const getMissingTopics = async (req, res) => {
   try {
     // Personalized: topics in the user's preferred exams minus topics they saved a video for
