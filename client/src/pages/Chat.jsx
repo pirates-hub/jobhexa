@@ -67,7 +67,7 @@ function ChatApplyButton({ job, size = 'sm' }) {
   if (job?.slug) return <Link to={`/jobs/${job.slug}#how-to-apply`} className={cls}>How to Apply →</Link>;
   return null;
 }
-function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest }) {
+function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest, onPlanStarted }) {
   const [started, setStarted] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startMsg, setStartMsg] = useState('');
@@ -77,6 +77,7 @@ function RightPanel({ data, onSaveJob, jobIndex = {}, onSuggest }) {
     try {
       await api.post('/chat/study-plan/start');
       setStarted(true);
+      onPlanStarted?.();
       setStartMsg('Plan started! Daily 8 AM notifications from Day 1.');
     } catch (e) {
       setStartMsg(e.response?.data?.message || 'Could not start plan — try again.');
@@ -542,6 +543,8 @@ function Chat() {
   });
   const [mobileTab, setMobileTab] = useState('chat');
   const [saveMsg, setSaveMsg] = useState('');
+  const [planStarted, setPlanStarted] = useState(false);
+  const [planStarting, setPlanStarting] = useState(false);
   const messagesEndRef = useRef(null);
 
   // slug/title index to repair model-written /jobs/<raw title> links.
@@ -574,6 +577,23 @@ function Chat() {
   };
 
   useEffect(() => { scrollToBottom(); }, [messages, loading]);
+
+  // A freshly generated plan is unstarted — reset the chat-column CTA.
+  useEffect(() => { if (rightData?.type === 'studyPlan') setPlanStarted(false); }, [rightData]);
+
+  const startPlanNow = async () => {
+    if (planStarting || planStarted) return;
+    setPlanStarting(true);
+    try {
+      await api.post('/chat/study-plan/start');
+      setPlanStarted(true);
+      setSaveMsg('Plan started! Daily 8 AM notifications from Day 1.');
+      setTimeout(() => setSaveMsg(''), 4000);
+    } catch {
+      setSaveMsg('Could not start plan — try again.');
+      setTimeout(() => setSaveMsg(''), 4000);
+    } finally { setPlanStarting(false); }
+  };
 
   useEffect(() => {
     try {
@@ -894,6 +914,13 @@ function Chat() {
             <div ref={messagesEndRef} />
           </div>
 
+          {rightData?.type === 'studyPlan' && !planStarted && (
+            <div className="px-4 pt-3 shrink-0">
+              <button onClick={startPlanNow} disabled={planStarting} className="w-full inline-flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-3 rounded-2xl text-sm font-bold shadow-md shadow-green-600/20 hover:bg-green-700 disabled:opacity-50 transition">
+                {planStarting ? 'Starting…' : `▶ Start ${typeof rightData.exam === 'string' ? rightData.exam : 'Study'} Plan — daily 8 AM mails`}
+              </button>
+            </div>
+          )}
           <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-white border-t border-gray-100 shrink-0">
             <div className="flex gap-3 items-end bg-gray-50 rounded-2xl p-2 border border-gray-200 focus-within:border-primary-300 focus-within:ring-4 focus-within:ring-primary-50 transition">
               <textarea
@@ -922,7 +949,7 @@ function Chat() {
             {rightData && <button onClick={()=>setRightData(null)} className="text-xs text-gray-400 hover:text-gray-600 bg-gray-50 hover:bg-white border border-transparent hover:border-gray-200 px-3 py-1.5 rounded-full transition">Clear</button>}
           </div>
           <div className="flex-1 overflow-y-auto">
-            <RightPanel data={rightData} onSaveJob={handleSaveJob} onSuggest={(q) => { setInput(q); sendMessage(q); }} />
+            <RightPanel data={rightData} onSaveJob={handleSaveJob} onSuggest={(q) => { setInput(q); sendMessage(q); }} onPlanStarted={() => setPlanStarted(true)} />
           </div>
         </div>
       </div>
