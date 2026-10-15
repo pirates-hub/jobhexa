@@ -199,6 +199,38 @@ export const createTopic = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
+// Admin: attach a YouTube video to a preparation topic (idempotent by videoId).
+// Accepts a full watch URL — the 11-char id is extracted server-side.
+export const addVideo = async (req, res) => {
+  try {
+    const { default: Topic } = await import('../models/Topic.js');
+    const { default: VideoLink } = await import('../models/VideoLink.js');
+    const { topicSlug, topicName, title, youtubeUrl, youtubeVideoId, channelName, language, quality } = req.body;
+    let topic = null;
+    if (topicSlug) topic = await Topic.findOne({ slug: topicSlug });
+    if (!topic && topicName) topic = await Topic.findOne({ name: new RegExp(`^${String(topicName).trim()}$`, 'i') });
+    if (!topic) return res.status(404).json({ success: false, message: 'Topic not found — check topicSlug/topicName' });
+    let videoId = youtubeVideoId;
+    if (!videoId && youtubeUrl) {
+      const m = String(youtubeUrl).match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+      videoId = m?.[1] || null;
+    }
+    if (!videoId) return res.status(400).json({ success: false, message: 'Provide a valid YouTube watch URL or 11-char videoId' });
+    const exists = await VideoLink.findOne({ youtubeVideoId: videoId });
+    if (exists) return res.json({ success: true, data: { video: exists, message: 'Video already attached' } });
+    const video = await VideoLink.create({
+      topic: topic._id,
+      title: title || topic.name,
+      youtubeVideoId: videoId,
+      youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      channelName: channelName || '', language: language || 'english',
+      quality: quality || 'beginner', isVerified: true,
+    });
+    await logAction(req.user._id, 'add_video', 'VideoLink', video._id, { topic: topic.slug, videoId }, req.ip);
+    res.json({ success: true, data: { video } });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+};
+
 // How mails were sent — unified log for admin panel
 export const getMailLogs = async (req, res) => {
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);

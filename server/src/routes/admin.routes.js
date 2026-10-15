@@ -67,4 +67,5 @@ router.get('/crawls', adminCtrl.getCrawlHistory);
 router.get('/mails/logs', adminCtrl.getMailLogs);
 router.post('/mails/send', adminCtrl.sendManualMail);
 router.post('/prep/topics', adminCtrl.createTopic);
+router.post('/prep/videos', adminCtrl.addVideo);
 export default router;
