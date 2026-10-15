@@ -29,7 +29,8 @@ function renderWithLinks(text, jobIndex = {}) {
         } else {
           href = `/jobs/${key}`;
         }
-        return <a key={i} href={href} className="text-primary-600 hover:underline font-medium">{match[1]}</a>;
+        // Open in a new tab so the chat and its results stay open behind.
+        return <a key={i} href={href} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline font-medium">{match[1]}</a>;
       }
       // External links (e.g. AI-written [Apply](https://...)) open in a new tab
       if (/^https?:\/\//.test(href)) {
