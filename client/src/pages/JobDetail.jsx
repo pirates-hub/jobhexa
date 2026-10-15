@@ -8,6 +8,15 @@ import { formatDate, formatCurrency, daysUntil, getDeadlineColor, getJobStatusBa
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+// Free mock tests per exam family (MockTestZone). Exam types without a
+// dedicated series fall back to the all-exams page.
+const MOCK_TEST_URLS = {
+  ssc: 'https://www.mocktestzone.in/ssc-mock-tests',
+  upsc: 'https://www.mocktestzone.in/upsc-mock-tests',
+  banking: 'https://www.mocktestzone.in/banking-mock-tests',
+};
+const mockTestUrlFor = (examType) => MOCK_TEST_URLS[(examType || '').toLowerCase()] || 'https://www.mocktestzone.in/exams';
+
 function JobDetail() {
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -179,6 +188,7 @@ function JobDetail() {
                     {job.officialWebsite && <a href={job.officialWebsite} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-white transition">Official site ↗</a>}
                     {job.notificationPdfUrl && <a href={job.notificationPdfUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center rounded-xl bg-white border border-slate-200 px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition">Notification PDF</a>}
                   </div>
+                  <a href={mockTestUrlFor(job.examType)} target="_blank" rel="noopener noreferrer" className="mt-2.5 w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm font-bold text-emerald-800 hover:bg-emerald-100 transition">📝 Free Mock Tests — {job.examType ? job.examType.toUpperCase() : 'All Exams'} ↗</a>
                   <p className="text-[11px] font-medium text-slate-400 text-center mt-3">Links open in new tab • verify on official site</p>
                 </div>
               </div>
@@ -398,6 +408,7 @@ function JobDetail() {
                 {job.officialNotificationUrl && <a href={job.officialNotificationUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold">Notification URL ↗</a>}
                 {job.officialApplyUrl && <a href={job.officialApplyUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold">Application URL ↗</a>}
                 {job.notificationPdfUrl && <a href={job.notificationPdfUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold">Notification PDF ↗</a>}
+                <a href={mockTestUrlFor(job.examType)} target="_blank" rel="noopener noreferrer" className="rounded-full bg-emerald-600 text-white px-4 py-2 text-xs font-bold">📝 Free Mock Tests ↗</a>}
               </div>
               <p className="text-[11px] font-medium text-slate-400 mt-4">Disclaimer: JobHexa is not an official government website. Details are collected from official notifications — verify everything in the original notification before applying.</p>
             </div>
