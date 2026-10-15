@@ -8,7 +8,12 @@ router.post('/', protect, async (req, res) => {
     if (!message) return res.status(400).json({ success: false, message: 'Message required' });
     const result = await chatWithAI(message, req.user);
     res.json({ success: true, data: result });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch (e) {
+    if (String(e.message || '').includes('429')) {
+      return res.status(429).json({ success: false, message: 'AI is busy right now (rate limit) — please wait a minute and ask again.' });
+    }
+    res.status(500).json({ success: false, message: e.message });
+  }
 });
 router.post('/summarize-pdf', protect, async (req, res) => {
   try {

@@ -13,10 +13,12 @@ export const aiChat = async (messages, opts = {}) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const body = { model: GROQ_MODEL, messages, stream: false };
+    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
     const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: GROQ_MODEL, messages, stream: false }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -71,11 +73,11 @@ export const chatWithAI = async (message, context) => {
       let jobs;
       if (hitState) {
         // State jobs first, then All-India fill — otherwise centrals crowd out state rows
-        const own = await Job.find({ ...baseFilter, state: new RegExp(hitState, 'i') }).limit(20).select(proj);
-        const rest = await Job.find({ ...baseFilter, state: 'All India' }).limit(Math.max(0, 20 - own.length)).select(proj);
+        const own = await Job.find({ ...baseFilter, state: new RegExp(hitState, 'i') }).limit(10).select(proj);
+        const rest = await Job.find({ ...baseFilter, state: 'All India' }).limit(Math.max(0, 10 - own.length)).select(proj);
         jobs = [...own, ...rest];
       } else {
-        jobs = await Job.find(baseFilter).limit(20).select(proj);
+        jobs = await Job.find(baseFilter).limit(10).select(proj);
       }
       // For "what exam am I eligible" queries, filter to only eligible jobs using real eligibility engine
       if (isEligibleQuery && (lower.includes('what') || lower.includes('which') || !lower.includes('for')) && context?._id) {
@@ -95,11 +97,8 @@ export const chatWithAI = async (message, context) => {
       if (jobs.length) {
         const row = (j) => {
           const dl = j.applicationEndDate ? j.applicationEndDate.toISOString().split('T')[0] : 'Not specified';
-          const ex = j.examDate ? j.examDate.toISOString().split('T')[0] : 'Not specified';
-          const qual = j.eligibility?.qualifications?.map((q) => q.level).join(',') || 'Not specified';
-          const age = j.eligibility?.ageMax ? `${j.eligibility?.ageMin || 18}-${j.eligibility.ageMax}` : 'Not specified';
           const vac = j.totalVacancies ?? 'Not specified';
-          return `- [${j.title}](/jobs/${j.slug}) | ${j.examType || 'Not specified'} | ${j.department || 'Not specified'} | ${j.state || ''} | Vacancies: ${vac} | Deadline: ${dl} | Exam: ${ex} | Qual: ${qual} | Age ${age} | Apply: ${j.applyLink || j.officialWebsite || 'see job page'}`;
+          return `- [${j.title}](/jobs/${j.slug}) | ${j.department || 'Not specified'} | ${j.state || ''} | Vac: ${vac} | DL: ${dl} | Apply: ${j.applyLink || j.officialWebsite || 'see job page'}`;
         };
         jobsContext = `\n\nJobHexa Database — these are the ONLY jobs you may mention. Copy titles, vacancy numbers, dates and links EXACTLY as written. NEVER invent jobs, vacancy counts, groups (e.g. Group X/A/B/C/V) or dates not in this list. Write "Not specified" instead of guessing. If the user asks for something not in this list, say it is not in the database and point to the official site.\n${jobs.map(row).join('\n')}\nOfficial sites: SSC https://ssc.gov.in, UPSC https://upsc.gov.in, IBPS https://ibps.in, RRB https://indianrailways.gov.in, TNPSC https://tnpsc.gov.in, DRDO https://drdo.gov.in.\nIMPORTANT: list every job as: N. [Title](/jobs/slug) | Vacancies | Deadline | [Details](/jobs/slug) [Apply](apply-url). "Details" and "Apply" MUST be markdown links — never plain text. Keep the title link exactly [Title](/jobs/slug) so users can click through.`;
         if (isEligibleQuery && jobs.length < 10) {
@@ -108,10 +107,14 @@ export const chatWithAI = async (message, context) => {
       }
     } catch (e) { console.error('[RAG] Jobs fetch failed', e.message); }
 
+    // Minimal user context: the full user doc (ids, tokens, prefs) is both
+    // a token hog and must never leave for a third-party API.
+    const cu = (context && typeof context.toObject === 'function') ? context.toObject() : (context || {});
+    const tinyCtx = { name: cu.name, state: cu.state, category: cu.category, qualification: cu.qualification, dateOfBirth: cu.dateOfBirth };
     const content = await aiChat([
-      { role: 'system', content: 'You are JobHexa AI assistant for Indian government job aspirants. RULES: (1) Only mention jobs from the JobHexa Database below — never invent post names, groups, vacancy numbers or dates. (2) Copy titles, numbers, dates and links exactly. (3) Use "Not specified" for anything missing — never write "undefined". (4) If asked for jobs not in the list, say so and direct to the official site. For each job, format the title as a markdown link [Title](/jobs/slug) exactly as provided so user can click to visit. Be accurate, concise, helpful. User context: ' + JSON.stringify(context || {}) + jobsContext },
+      { role: 'system', content: 'You are JobHexa AI assistant for Indian government job aspirants. RULES: (1) Only mention jobs from the JobHexa Database below — never invent post names, groups, vacancy numbers or dates. (2) Copy titles, numbers, dates and links exactly. (3) Use "Not specified" for anything missing — never write "undefined". (4) If asked for jobs not in the list, say so and direct to the official site. For each job, format the title as a markdown link [Title](/jobs/slug) exactly as provided so user can click to visit. Be accurate, concise, helpful. User context: ' + JSON.stringify(tinyCtx) + jobsContext },
       { role: 'user', content: message },
-    ]);
+    ], { maxTokens: 1200 });
     return { reply: content };
   } catch (e) {
     console.error('[AI] Chat error:', e.message);

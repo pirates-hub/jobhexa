@@ -829,7 +829,7 @@ function Chat() {
         body: JSON.stringify({ message: userText }),
       });
       const data = await res.json();
-      const reply = data.data?.reply || 'No reply';
+      const reply = data.data?.reply || data.message || 'No reply';
       setMessages(prev => [...prev, { role: 'ai', text: reply }]);
       // Every AI response also lands in the results panel
       if (!panelHandled) {
