@@ -10,6 +10,7 @@ import Subject from '../models/Subject.js';
 import Topic from '../models/Topic.js';
 import ExamTopic from '../models/ExamTopic.js';
 import VideoLink from '../models/VideoLink.js';
+import MockTest from '../models/MockTest.js';
 import Job from '../models/Job.js';
 
 import states from './states.js';
@@ -21,6 +22,7 @@ import topics from './topics.js';
 import examTopics from './examTopics.js';
 import videoLinks from './videoLinks.js';
 import mockJobs from './mockJobs.js';
+import mockTests from './mockTests.js';
 
 dotenv.config();
 
@@ -100,6 +102,26 @@ const seedVideoLinks = async () => {
       console.log(`  VideoLinks: Some duplicates found, partial seed completed`);
     } else {
       console.error(`  VideoLinks: Error -`, error.message);
+    }
+  }
+};
+
+const seedMockTests = async () => {
+  try {
+    const existing = await MockTest.find().select('slug');
+    const existingSlugs = new Set(existing.map(t => t.slug));
+    const missing = mockTests.filter(t => !existingSlugs.has(t.slug));
+    if (!missing.length) {
+      console.log(`  MockTests: Already seeded (${existing.length} docs), nothing to add`);
+      return;
+    }
+    const result = await MockTest.insertMany(missing, { ordered: false });
+    console.log(`  MockTests: Seeded ${result.length} new documents (${existing.length} existing)`);
+  } catch (error) {
+    if (error.code === 11000) {
+      console.log(`  MockTests: Some duplicates found, partial seed completed`);
+    } else {
+      console.error(`  MockTests: Error -`, error.message);
     }
   }
 };
@@ -186,6 +208,7 @@ const seed = async () => {
   await seedTopics();
   await seedExamTopics();
   await seedVideoLinks();
+  await seedMockTests();
 
   console.log('\nSeeding job data:');
   await seedJobs();

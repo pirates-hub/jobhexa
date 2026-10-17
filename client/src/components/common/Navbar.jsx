@@ -49,6 +49,7 @@ function Navbar() {
             <div className="hidden min-[921px]:flex items-center gap-1.5 lg:gap-1">
               <Link to="/jobs" className="px-3.5 py-2 rounded-full text-[14px] font-medium tracking-tight text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition">Jobs</Link>
               <Link to="/preparation" className="px-3.5 py-2 rounded-full text-[14px] font-medium tracking-tight text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition">Preparation</Link>
+              <Link to="/mock-tests" className="px-3.5 py-2 rounded-full text-[14px] font-medium tracking-tight text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition">Mock Tests</Link>
               <Link to="/my-plan" className="px-3.5 py-2 rounded-full text-[14px] font-medium tracking-tight text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition">My Plan</Link>
               <Link to="/chat" className="px-3.5 py-2 rounded-full text-[14px] font-medium tracking-tight text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition">AI Chat</Link>
               {user ? (
@@ -101,6 +102,7 @@ function Navbar() {
             <div id="mobile-nav" className="min-[921px]:hidden border-t border-slate-200/70 py-4 flex flex-col gap-1 pb-6">
               <Link to="/jobs" className="px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-700 font-medium transition" onClick={closeMobile}>Jobs</Link>
               <Link to="/preparation" className="px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-700 font-medium transition" onClick={closeMobile}>Preparation</Link>
+              <Link to="/mock-tests" className="px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-700 font-medium transition" onClick={closeMobile}>Mock Tests</Link>
               <Link to="/my-plan" className="px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-700 font-medium transition" onClick={closeMobile}>My Plan</Link>
               <Link to="/chat" className="px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-700 font-medium transition" onClick={closeMobile}>AI Chat</Link>
               {user ? (

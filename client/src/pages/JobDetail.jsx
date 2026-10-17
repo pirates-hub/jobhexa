@@ -408,7 +408,7 @@ function JobDetail() {
                 {job.officialNotificationUrl && <a href={job.officialNotificationUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold">Notification URL ↗</a>}
                 {job.officialApplyUrl && <a href={job.officialApplyUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold">Application URL ↗</a>}
                 {job.notificationPdfUrl && <a href={job.notificationPdfUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold">Notification PDF ↗</a>}
-                <a href={mockTestUrlFor(job.examType)} target="_blank" rel="noopener noreferrer" className="rounded-full bg-emerald-600 text-white px-4 py-2 text-xs font-bold">📝 Free Mock Tests ↗</a>}
+                <a href={mockTestUrlFor(job.examType)} target="_blank" rel="noopener noreferrer" className="rounded-full bg-emerald-600 text-white px-4 py-2 text-xs font-bold">📝 Free Mock Tests ↗</a>
               </div>
               <p className="text-[11px] font-medium text-slate-400 mt-4">Disclaimer: JobHexa is not an official government website. Details are collected from official notifications — verify everything in the original notification before applying.</p>
             </div>

@@ -19,6 +19,8 @@ import Preparation from './pages/Preparation';
 import ExamDetail from './pages/ExamDetail';
 import SubjectDetail from './pages/SubjectDetail';
 import TopicDetail from './pages/TopicDetail';
+import MockTests from './pages/MockTests';
+import MockTestRunner from './pages/MockTestRunner';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminOverview from './pages/admin/AdminOverview';
 import ManageJobs from './pages/admin/ManageJobs';
@@ -143,6 +145,8 @@ function App() {
           <Route path="/preparation/:slug" element={<ExamDetail />} />
           <Route path="/preparation/subject/:slug" element={<SubjectDetail />} />
           <Route path="/preparation/topic/:slug" element={<TopicDetail />} />
+          <Route path="/mock-tests" element={<MockTests />} />
+          <Route path="/mock-tests/:slug" element={<MockTestRunner />} />
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/overview" element={<AdminOverview />} />
           <Route path="/admin/jobs" element={<ManageJobs />} />

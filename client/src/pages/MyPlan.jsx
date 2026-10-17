@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Loader from '../components/common/Loader';
 import EmptyState from '../components/common/EmptyState';
-import TopicLink from '../components/prep/TopicLink';
+import TopicLink, { usePrepIndex, resolvePlanLink } from '../components/prep/TopicLink';
 
 function MyPlan() {
   const { user, loading: authLoading } = useAuth();
@@ -13,6 +13,7 @@ function MyPlan() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [advancing, setAdvancing] = useState(false);
+  const prepIndex = usePrepIndex();
 
   useEffect(() => { if (authLoading) return;
     if (!user) { navigate('/login'); return; } api.get('/chat/study-plan').then(res => setPlan(res.data.data.plan)).catch(()=>{}).finally(()=>setLoading(false)); }, [user, navigate]);
@@ -33,6 +34,13 @@ function MyPlan() {
     if (filter==='today') return plan.plan.filter(d=> d.day === plan.currentDay);
     return plan.plan;
   }, [plan, filter]);
+
+  // Resolve each day's topic once; tasks without their own match fall back here.
+  const dayLinks = useMemo(() => {
+    const map = {};
+    (plan?.plan || []).forEach((d) => { map[d.day] = resolvePlanLink(d.topic, prepIndex)?.to || '/preparation'; });
+    return map;
+  }, [plan, prepIndex]);
 
   if (authLoading) return null;
   if (!user) return null;
@@ -134,13 +142,13 @@ function MyPlan() {
                       <span className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-extrabold border shadow-sm ${isCurrent ? 'bg-slate-900 text-white border-slate-900' : isPast ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-200'}`}>{isCurrent ? 'Day ' + d.day + ' - Current' : isPast ? 'Day ' + d.day + ' - Done' : 'Day ' + d.day}</span>
                       <span className="lg:hidden inline-flex w-8 h-8 rounded-full bg-slate-900 text-white items-center justify-center text-xs font-bold">{isPast ? '?' : d.day}</span>
                     </div>
-                    <span className="inline-flex items-center gap-2 rounded-full bg-white border border-slate-200 px-4 py-1.5 text-xs font-bold text-slate-600 shadow-sm">{d.hours}h - {d.subject}</span>
+                    <span className="inline-flex items-center gap-2 rounded-full bg-white border border-slate-200 px-4 py-1.5 text-xs font-bold text-slate-600 shadow-sm">{d.hours}h - <TopicLink text={d.subject} showIcon={false} className="hover:text-primary-700 hover:underline" /></span>
                   </div>
                   <TopicLink text={d.topic} className="font-bold text-slate-900 mt-4 text-[15px] leading-snug tracking-tight hover:text-primary-700 hover:underline block" />
                   <ul className="mt-4 grid sm:grid-cols-2 gap-2.5">
                     {d.tasks?.slice(0,4).map((t,i)=>(
                       <li key={i} className={`flex gap-3 text-xs font-medium rounded-xl px-4 py-3 border transition ${isCurrent ? 'bg-white border-primary-100 text-slate-700 shadow-sm' : isPast ? 'bg-white/70 border-emerald-100 text-slate-600' : 'bg-slate-50 border-slate-100 text-slate-600 hover:bg-white hover:border-slate-200'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${isPast ? 'bg-emerald-500' : isCurrent ? 'bg-primary-500' : 'bg-slate-300'}`} />{t}
+                        <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${isPast ? 'bg-emerald-500' : isCurrent ? 'bg-primary-500' : 'bg-slate-300'}`} /><TopicLink text={t} fallbackTo={dayLinks[d.day]} className="min-w-0 hover:text-primary-700 hover:underline" />
                       </li>
                     ))}
                   </ul>

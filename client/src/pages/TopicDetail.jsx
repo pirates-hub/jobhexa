@@ -138,6 +138,7 @@ function TopicDetail() {
                 <span className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-bold capitalize ${getDifficultyColor(topic.difficulty)}`}>{topic.difficulty || '—'} difficulty</span>
                 {topic.estimatedHours && <span className="inline-flex rounded-full bg-slate-50 border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600">Estimated {topic.estimatedHours}h</span>}
                 <span className="inline-flex rounded-full bg-indigo-50 border border-indigo-100 px-3 py-1.5 text-xs font-bold text-indigo-700">{englishVideos.length} English videos</span>
+                {topic.slug === 'gk-mock-test' && <Link to="/mock-tests/gk-mock-test" className="inline-flex rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-3 py-1.5 text-xs font-bold hover:shadow-md transition">📝 Start Mock Test ↗</Link>}
                 <Link to="/chat" className="inline-flex rounded-full bg-gradient-to-r from-primary-600 to-blue-600 text-white px-3 py-1.5 text-xs font-bold hover:shadow-md transition">✦ Ask AI about this topic</Link>
               </div>
               <div className="mt-6 rounded-2xl bg-slate-50 border border-slate-200 p-4 flex gap-3">
