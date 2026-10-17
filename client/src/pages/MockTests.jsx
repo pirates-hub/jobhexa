@@ -111,6 +111,17 @@ function MockTests() {
             ))}
           </div>
         )}
+
+        <div className="mt-8 rounded-[24px] bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">📝</div>
+            <div>
+              <p className="text-sm font-bold text-slate-900">Free mock tests (external) — practice now</p>
+              <p className="text-xs font-medium text-slate-500">Our own full-length mock tests for all exams are coming soon.</p>
+            </div>
+          </div>
+          <a href="https://www.mocktestzone.in/exams" target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 bg-slate-900 text-white px-5 py-2.5 rounded-full text-sm font-bold hover:bg-slate-800 transition">Browse free mock tests ↗</a>
+        </div>
       </div>
     </div>
   );
