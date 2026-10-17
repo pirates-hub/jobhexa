@@ -44,22 +44,26 @@ const seedCollection = async (Model, data, name) => {
 
 const seedTopics = async () => {
   try {
-    const count = await Topic.countDocuments();
-    if (count > 0) {
-      console.log(`  Topics: Already seeded (${count} docs), skipping`);
-      return;
-    }
     const subjectDocs = await Subject.find();
     const subjectMap = {};
     subjectDocs.forEach(s => { subjectMap[s.name] = s._id; });
 
-    const topicsWithSubject = topics.map(t => ({
-      ...t,
-      subject: subjectMap[t.subjectName],
-    })).filter(t => t.subject);
+    // Idempotent: insert only topics whose slug is not already present, so
+    // newly added seed topics backfill into an existing database.
+    const existing = await Topic.find().select('slug');
+    const existingSlugs = new Set(existing.map(t => t.slug));
+    const missing = topics
+      .filter(t => !existingSlugs.has(t.slug))
+      .map(t => ({ ...t, subject: subjectMap[t.subjectName] }))
+      .filter(t => t.subject);
 
-    const result = await Topic.insertMany(topicsWithSubject, { ordered: false });
-    console.log(`  Topics: Seeded ${result.length} documents`);
+    if (!missing.length) {
+      console.log(`  Topics: Already seeded (${existing.length} docs), nothing to add`);
+      return;
+    }
+
+    const result = await Topic.insertMany(missing, { ordered: false });
+    console.log(`  Topics: Seeded ${result.length} new documents (${existing.length} existing)`);
   } catch (error) {
     if (error.code === 11000) {
       console.log(`  Topics: Some duplicates found, partial seed completed`);
