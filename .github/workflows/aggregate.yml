@@ -18,6 +18,11 @@ jobs:
           node-version: 24
       - working-directory: aggregator
         run: npm install
+      - name: Debug Node and SQLite
+        working-directory: aggregator
+        run: |
+          node --version
+          node -e "import('node:sqlite').then(()=>console.log('node:sqlite OK')).catch(e=>{console.error('node:sqlite FAIL:', e.message); process.exit(1)})"
       - working-directory: aggregator
         run: node index.js --once ${{ inputs.source && format('--source {0}', inputs.source) || '' }}
       - uses: actions/upload-artifact@v4

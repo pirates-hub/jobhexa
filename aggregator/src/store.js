@@ -9,42 +9,49 @@ let DatabaseSync = null;
 
 export function openDb(dbPath = DB_PATH) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  return import('node:sqlite').then((m) => {
-    DatabaseSync = m.DatabaseSync;
-    db = new DatabaseSync(dbPath === ':memory:' ? ':memory:' : dbPath);
-    db.exec('PRAGMA journal_mode = WAL;');
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      state TEXT NOT NULL,
-      organization TEXT,
-      title TEXT NOT NULL,
-      postName TEXT,
-      vacancies INTEGER,
-      qualification TEXT,
-      ageLimit TEXT,
-      salary TEXT,
-      applicationStart TEXT,
-      lastDate TEXT,
-      notificationUrl TEXT NOT NULL,
-      applyUrl TEXT,
-      category TEXT DEFAULT 'active',
-      fetchedAt TEXT NOT NULL
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_id ON jobs(id);
-    CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
-    CREATE TABLE IF NOT EXISTS job_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      jobId TEXT NOT NULL,
-      changedAt TEXT NOT NULL,
-      field TEXT NOT NULL,
-      oldValue TEXT,
-      newValue TEXT
-    );
-  `);
-    return db;
-  });
+
+  return import('node:sqlite')
+    .then((m) => {
+      DatabaseSync = m.DatabaseSync;
+      db = new DatabaseSync(dbPath === ':memory:' ? ':memory:' : dbPath);
+      db.exec('PRAGMA journal_mode = WAL;');
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        state TEXT NOT NULL,
+        organization TEXT,
+        title TEXT NOT NULL,
+        postName TEXT,
+        vacancies INTEGER,
+        qualification TEXT,
+        ageLimit TEXT,
+        salary TEXT,
+        applicationStart TEXT,
+        lastDate TEXT,
+        notificationUrl TEXT NOT NULL,
+        applyUrl TEXT,
+        category TEXT DEFAULT 'active',
+        fetchedAt TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_id ON jobs(id);
+      CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
+      CREATE TABLE IF NOT EXISTS job_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        jobId TEXT NOT NULL,
+        changedAt TEXT NOT NULL,
+        field TEXT NOT NULL,
+        oldValue TEXT,
+        newValue TEXT
+      );
+    `);
+      return db;
+    })
+    .catch((err) => {
+      const msg = `Failed to import node:sqlite (or initialize DB). Ensure your Node build includes node:sqlite. Error: ${err && (err.message || err)}`;
+      logger.error({ err: err && (err.stack || err.message) }, msg);
+      throw new Error(msg);
+    });
 }
 
 export function jobId(org, title, lastDate) {
