@@ -107,8 +107,14 @@ const jobSchema = new mongoose.Schema({
   },
   source: {
     type: String,
-    enum: ['admin', 'ai_extracted', 'manual'],
+    enum: ['admin', 'ai_extracted', 'manual', 'aggregator'],
     default: 'admin',
+  },
+  aggregatorMeta: {
+    id: { type: String, index: true },
+    sourceId: String,
+    category: String,
+    fetchedAt: Date,
   },
   verificationStatus: {
     type: String,

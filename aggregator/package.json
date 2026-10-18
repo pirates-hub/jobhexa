@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node index.js",
     "once": "node index.js --once",
+    "check:new": "node scripts/check-new.mjs",
     "test": "vitest run"
   },
   "dependencies": {

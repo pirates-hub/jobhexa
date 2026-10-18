@@ -75,10 +75,16 @@ function AdminDashboard() {
             <span className="inline-flex mt-4 text-xs font-bold bg-white text-primary-700 px-3 py-1.5 rounded-full">Upload now →</span>
           </Link>
           <Link to="/admin/mails" className="group bg-white rounded-[24px] border border-slate-200/70 p-7 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all">
-            <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-md">✉</div>
+            <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-md">�o%</div>
             <h3 className="font-extrabold text-slate-900 mt-4">Mails</h3>
             <p className="text-sm font-medium text-slate-500 mt-1">How mails sent & send manual mails</p>
-            <span className="inline-flex mt-4 text-xs font-bold text-emerald-700">Open →</span>
+            <span className="inline-flex mt-4 text-xs font-bold text-emerald-700">Open �+'</span>
+          </Link>
+          <Link to="/admin/aggregator" className="group bg-white rounded-[24px] border border-blue-200 bg-gradient-to-br from-white to-blue-50 p-7 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all">
+            <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md">�-�</div>
+            <h3 className="font-extrabold text-slate-900 mt-4">Aggregator Inbox</h3>
+            <p className="text-sm font-medium text-slate-500 mt-1">Import & review newly fetched notifications</p>
+            <span className="inline-flex mt-4 text-xs font-bold text-blue-700">Open �+'</span>
           </Link>
         </div>
 

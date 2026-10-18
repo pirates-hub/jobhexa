@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { protect, adminOnly } from '../middleware/auth.middleware.js';
 import * as adminCtrl from '../controllers/admin.controller.js';
+import * as aggregatorCtrl from '../controllers/aggregator.controller.js';
 import { updateJobStatuses } from '../services/jobUpdate.service.js';
 import { runDailyCollection, runMonthlyReconciliation } from '../services/jobCollection.service.js';
 const router = Router();
@@ -42,6 +43,9 @@ router.post('/jobs/weekly-refresh', async (req, res) => {
     res.status(500).json({ success: false, message: e.message });
   }
 });
+router.get('/aggregator', aggregatorCtrl.getAggregatorJobs);
+router.post('/aggregator/import', aggregatorCtrl.importAggregatorJobs);
+router.delete('/aggregator/:id', aggregatorCtrl.deleteAggregatorJob);
 router.get('/dashboard', adminCtrl.getDashboardStats);
 router.get('/overview', adminCtrl.getOverview);
 router.post('/notify/run', async (req, res) => {

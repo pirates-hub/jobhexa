@@ -23,10 +23,12 @@ import MockTests from './pages/MockTests';
 import MockTestRunner from './pages/MockTestRunner';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminOverview from './pages/admin/AdminOverview';
+import AdminAggregator from './pages/admin/AdminAggregator';
 import ManageJobs from './pages/admin/ManageJobs';
 import VerifyJobs from './pages/admin/VerifyJobs';
 import ManageUsers from './pages/admin/ManageUsers';
 import AdminMails from './pages/admin/AdminMails';
+import AdminRoute from './components/common/AdminRoute';
 import Chat from './pages/Chat';
 import MyPlan from './pages/MyPlan';
 import PdfUpload from './pages/admin/PdfUpload';
@@ -147,15 +149,16 @@ function App() {
           <Route path="/preparation/topic/:slug" element={<TopicDetail />} />
           <Route path="/mock-tests" element={<MockTests />} />
           <Route path="/mock-tests/:slug" element={<MockTestRunner />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/admin/overview" element={<AdminOverview />} />
-          <Route path="/admin/jobs" element={<ManageJobs />} />
-          <Route path="/admin/verify" element={<VerifyJobs />} />
-          <Route path="/admin/users" element={<ManageUsers />} />
-          <Route path="/admin/mails" element={<AdminMails />} />
+          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+          <Route path="/admin/overview" element={<AdminRoute><AdminOverview /></AdminRoute>} />
+          <Route path="/admin/aggregator" element={<AdminRoute><AdminAggregator /></AdminRoute>} />
+          <Route path="/admin/jobs" element={<AdminRoute><ManageJobs /></AdminRoute>} />
+          <Route path="/admin/verify" element={<AdminRoute><VerifyJobs /></AdminRoute>} />
+          <Route path="/admin/users" element={<AdminRoute><ManageUsers /></AdminRoute>} />
+          <Route path="/admin/mails" element={<AdminRoute><AdminMails /></AdminRoute>} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/my-plan" element={<MyPlan />} />
-          <Route path="/admin/pdf" element={<PdfUpload />} />
+          <Route path="/admin/pdf" element={<AdminRoute><PdfUpload /></AdminRoute>} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/auth/callback" element={<OAuthCallback />} />
           <Route path="*" element={<NotFound />} />
