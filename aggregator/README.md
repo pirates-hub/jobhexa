@@ -25,7 +25,7 @@ Append to `sources.json`:
   "url": "https://verified-official-url.gov.in", "method": "html", "enabled": true }
 ```
 
-Optional per-source keys: `rssUrl` (checked before HTML), `keywordFilter` (string array), `selectors` (reserved), `ignoreCert: true` (expired-SSL sites only), `fallback: true` (aggregator sites).
+Optional per-source keys: `rssUrl` (checked before HTML), `keywordFilter` (string array), `selectors` (reserved), `ignoreCert: true` (expired/broken-SSL sites only), `legacyTls: true` (sites that need unsafe TLS legacy renegotiation), `insecureParser: true` (sites sending malformed header tokens), `headers` (per-source request headers, e.g. a browser `User-Agent`), `fallback: true` (aggregator sites).
 
 ## How to fix a broken layout (one file, one source)
 
@@ -38,7 +38,9 @@ Optional per-source keys: `rssUrl` (checked before HTML), `keywordFilter` (strin
 
 - `data/health.json` — per-run summary (tried/succeeded/failed/new/updated) + per-source errors and timings.
 - 0-result warnings mean the layout changed (see above).
-- `HTTP 403` = bot-blocked (mark `method: playwright` or `enabled: false` + rely on fallback).
+- `HTTP 403` = bot-blocked (the fetcher already retries once with a browser User-Agent; if it still fails, mark `method: playwright` or `enabled: false` + rely on fallback).
+- `node scripts/test-overrides.mjs` — re-runs the custom overrides (ssc, uppsc, opsc) and prints their docs without a full run.
+- A source that hangs is failed by a 7-minute watchdog instead of stalling the whole run.
 - Run with `AGG_LOG_LEVEL=debug` for per-request detail.
 
 ## Data model

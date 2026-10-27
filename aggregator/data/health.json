@@ -1,21 +1,21 @@
 {
-  "at": "2026-10-06T17:27:41.291Z",
+  "at": "2026-10-27T16:53:50.431Z",
   "sourcesTried": 1,
   "succeeded": 1,
   "failed": 0,
   "skipped": 0,
   "empty": [],
-  "newOrUpdated": 5,
+  "newOrUpdated": 0,
   "closingSoon": 0,
-  "totalJobs": 5,
+  "totalJobs": 191,
   "failures": [],
   "results": [
     {
-      "id": "keralapsc",
+      "id": "mpsc-mh",
       "status": "ok",
-      "ms": 12810,
-      "found": 5,
-      "stored": 5
+      "ms": 6724,
+      "found": 1,
+      "stored": 0
     }
   ]
 }

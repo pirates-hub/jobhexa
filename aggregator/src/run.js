@@ -24,6 +24,11 @@ async function politenessDelay(url) {
 
 function buildJob(source, doc, detailText = '') {
   const blob = `${doc.label || ''} ${detailText || ''}`.slice(0, 4000);
+  // Overrides may supply a known lastDate (ISO) or explicitly set null when
+  // the site does not publish one — otherwise fall back to text scanning.
+  const lastDate = 'lastDate' in doc
+    ? (doc.lastDate ? parseDate(doc.lastDate) : null)
+    : findDate(blob);
   return {
     source: source.id,
     state: source.state || 'All India',
@@ -35,7 +40,7 @@ function buildJob(source, doc, detailText = '') {
     ageLimit: extractAgeLimit(blob),
     salary: extractSalary(blob),
     applicationStart: null,
-    lastDate: findDate(blob),
+    lastDate,
     notificationUrl: doc.url,
     applyUrl: doc.url,
   };
@@ -43,9 +48,18 @@ function buildJob(source, doc, detailText = '') {
 
 async function enrichDoc(source, doc) {
   // Fetch the notice page/PDF for dates + vacancy details (best effort).
+  // Low retries + short timeout on purpose: this is enrichment, and a slow
+  // dead link must not stall the whole run.
   try {
     await politenessDelay(doc.url);
-    const res = await fetchUrl(doc.url, { ignoreCert: !!source.ignoreCert });
+    const res = await fetchUrl(doc.url, {
+      ignoreCert: !!source.ignoreCert,
+      legacyTls: !!source.legacyTls,
+      insecureParser: !!source.insecureParser,
+      headers: source.headers || {},
+      retries: 1,
+      timeoutMs: 15000,
+    });
     if (res.error || res.status >= 400) return { text: '' };
     if (/pdf/i.test(res.headers?.['content-type'] || '') || /\.pdf(\?|$)/i.test(doc.url)) {
       const parsed = await extractPdfText(res.buffer);
@@ -57,35 +71,55 @@ async function enrichDoc(source, doc) {
   }
 }
 
+// A hung fetch must never hang the whole run: if a source does not finish
+// in time, fail just that source (its own promise may be stuck forever).
+const SOURCE_WATCHDOG_MS = 420000;
+
 async function runSource(source) {
   const started = Date.now();
+  let watchdog;
   try {
-    await politenessDelay(source.method === 'pdf' && source.fallback ? source.url : source.url);
-    let out;
-    if (source.method === 'rss') out = await rssAdapter(source);
-    else if (source.method === 'playwright') out = await playwrightAdapter(source);
-    else if (source.method === 'pdf') out = await pdfAdapter(source);
-    else out = await htmlAdapter(source);
-    if (out.skipped) return { id: source.id, status: 'skipped', ms: Date.now() - started, note: out.error };
-    if (!out.ok) return { id: source.id, status: 'failed', ms: Date.now() - started, error: out.error };
-    if (!out.docs.length) {
-      return { id: source.id, status: 'ok-empty', ms: Date.now() - started, warning: '0 results — possible layout change', found: 0, stored: 0 };
-    }
-    let stored = 0;
-    for (const doc of out.docs.slice(0, 5)) {
-      const detail = /\.pdf(\?|$)/i.test(doc.url) || !doc.pdf ? await enrichDoc(source, doc) : { text: '' };
-      let text = detail.text;
-      if (doc.pdf) {
-        const parsed = await extractPdfText(doc.pdf);
-        if (parsed.ok) text = parsed.text.slice(0, 12000);
+    const work = (async () => {
+      await politenessDelay(source.method === 'pdf' && source.fallback ? source.url : source.url);
+      let out;
+      if (source.method === 'rss') out = await rssAdapter(source);
+      else if (source.method === 'playwright') out = await playwrightAdapter(source);
+      else if (source.method === 'pdf') out = await pdfAdapter(source);
+      else out = await htmlAdapter(source);
+      if (out.skipped) return { id: source.id, status: 'skipped', ms: Date.now() - started, note: out.error };
+      if (!out.ok) return { id: source.id, status: 'failed', ms: Date.now() - started, error: out.error };
+      if (!out.docs.length) {
+        return { id: source.id, status: 'ok-empty', ms: Date.now() - started, warning: '0 results — possible layout change', found: 0, stored: 0 };
       }
-      const job = buildJob(source, doc, text);
-      const r = upsertJob(job);
-      if (r === 'new' || r === 'updated') stored += 1;
-    }
-    return { id: source.id, status: 'ok', ms: Date.now() - started, found: out.docs.length, stored };
+      let stored = 0;
+      for (const doc of out.docs.slice(0, 5)) {
+        const detail = /\.pdf(\?|$)/i.test(doc.url) || !doc.pdf ? await enrichDoc(source, doc) : { text: '' };
+        let text = detail.text;
+        if (doc.pdf) {
+          const parsed = await extractPdfText(doc.pdf);
+          if (parsed.ok) text = parsed.text.slice(0, 12000);
+        }
+        const job = buildJob(source, doc, text);
+        const r = upsertJob(job);
+        if (r === 'new' || r === 'updated') stored += 1;
+      }
+      return { id: source.id, status: 'ok', ms: Date.now() - started, found: out.docs.length, stored };
+    })();
+    return await Promise.race([
+      work,
+      new Promise((resolve) => {
+        watchdog = setTimeout(() => resolve({
+          id: source.id,
+          status: 'failed',
+          ms: Date.now() - started,
+          error: `Watchdog: source did not finish within ${SOURCE_WATCHDOG_MS}ms (hung fetch)`,
+        }), SOURCE_WATCHDOG_MS);
+      }),
+    ]);
   } catch (err) {
     return { id: source.id, status: 'failed', ms: Date.now() - started, error: err.message };
+  } finally {
+    clearTimeout(watchdog);
   }
 }
 

@@ -7,11 +7,31 @@ import { fetchUrl } from '../http.js';
 import { discoverHtmlLinks, discoverRssItems } from '../discover.js';
 import { allowedByRobots } from '../robots.js';
 
-async function fetchText(url, source) {
+// Sites that block non-browser clients. Used as a second attempt when the
+// default aggregator UA gets a 403 or an anti-bot stub page.
+export const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+function sourceFetchOpts(source) {
+  return {
+    ignoreCert: !!source.ignoreCert,
+    legacyTls: !!source.legacyTls,
+    insecureParser: !!source.insecureParser,
+    headers: source.headers || {},
+  };
+}
+
+export async function fetchText(url, source) {
   if (!(await allowedByRobots(url))) {
-    return { ok: false, error: `Blocked by robots.txt: ${url}` };
+    return { ok: false, skipped: true, error: `Blocked by robots.txt: ${url}` };
   }
-  const res = await fetchUrl(url, { ignoreCert: !!source.ignoreCert });
+  let res = await fetchUrl(url, sourceFetchOpts(source));
+  // Retry once with a browser User-Agent: several gov sites (UPSC, MCgm, …)
+  // serve 403 or a tiny stub page to non-browser clients.
+  const ua = sourceFetchOpts(source).headers['User-Agent'];
+  const stub = !res.error && res.status === 200 && (res.text || '').length < 4096;
+  if ((res.status === 403 || stub) && ua !== BROWSER_UA) {
+    res = await fetchUrl(url, { ...sourceFetchOpts(source), headers: { ...sourceFetchOpts(source).headers, 'User-Agent': BROWSER_UA, 'Accept-Language': 'en-US,en;q=0.9' } });
+  }
   if (res.error || res.status === 0) return { ok: false, error: res.error };
   if (res.status === 403) return { ok: false, error: `HTTP 403 (bot-blocked): ${url}` };
   if (res.status === 404) return { ok: false, error: `HTTP 404: ${url}` };
@@ -32,7 +52,7 @@ export async function rssAdapter(source) {
   if (override?.discover) return override.discover(source);
   const feedUrl = source.rssUrl || source.url;
   const res = await fetchText(feedUrl, source);
-  if (!res.ok) return { ok: false, error: res.error, docs: [] };
+  if (!res.ok) return { ok: false, skipped: !!res.skipped, error: res.error, docs: [] };
   const docs = discoverRssItems(res.text, source.url, { keywords: source.keywordFilter });
   return { ok: true, docs };
 }
@@ -41,7 +61,7 @@ export async function htmlAdapter(source) {
   const override = await loadOverride(source.id);
   if (override?.discover) return override.discover(source);
   const res = await fetchText(source.url, source);
-  if (!res.ok) return { ok: false, error: res.error, docs: [] };
+  if (!res.ok) return { ok: false, skipped: !!res.skipped, error: res.error, docs: [] };
   const docs = discoverHtmlLinks(res.text, source.url, { keywords: source.keywordFilter });
   return { ok: true, docs };
 }
@@ -59,7 +79,7 @@ export async function playwrightAdapter(source) {
   try {
     browser = await playwright.chromium.launch({ headless: true });
     const page = await browser.newPage({ userAgent: process.env.AGG_UA });
-    await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForTimeout(3000);
     const html = await page.content();
     const docs = discoverHtmlLinks(html, source.url, { keywords: source.keywordFilter });
@@ -76,7 +96,7 @@ export async function pdfAdapter(source) {
   if (override?.discover) return override.discover(source);
   // PDF-method sources point directly at a notice PDF.
   const res = await fetchText(source.url, source);
-  if (!res.ok) return { ok: false, error: res.error, docs: [] };
+  if (!res.ok) return { ok: false, skipped: !!res.skipped, error: res.error, docs: [] };
   return { ok: true, docs: [{ url: source.url, label: source.name, pdf: res.buffer }] };
 }
 
