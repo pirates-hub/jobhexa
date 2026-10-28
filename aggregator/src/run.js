@@ -10,6 +10,7 @@ import { rssAdapter, htmlAdapter, playwrightAdapter, pdfAdapter, extractPdfText 
 import { parseDate, findDate } from './dates.js';
 import { extractVacancies, extractQualification, extractAgeLimit, extractSalary } from './parse.js';
 import { openDb, upsertJob, markClosingSoon, exportFiles, closeDb } from './store.js';
+import { isRecruitmentTitle } from './quality.js';
 import { fetchUrl } from './http.js';
 
 const lastHit = new Map(); // domain -> timestamp
@@ -92,7 +93,11 @@ async function runSource(source) {
         return { id: source.id, status: 'ok-empty', ms: Date.now() - started, warning: '0 results — possible layout change', found: 0, stored: 0 };
       }
       let stored = 0;
+      let filtered = 0;
       for (const doc of out.docs.slice(0, 5)) {
+        // Title quality gate: auto-published jobs must be real recruitment
+        // notices. Check before enriching so junk costs no page fetch.
+        if (!isRecruitmentTitle(doc.label)) { filtered += 1; continue; }
         const detail = /\.pdf(\?|$)/i.test(doc.url) || !doc.pdf ? await enrichDoc(source, doc) : { text: '' };
         let text = detail.text;
         if (doc.pdf) {
@@ -103,7 +108,7 @@ async function runSource(source) {
         const r = upsertJob(job);
         if (r === 'new' || r === 'updated') stored += 1;
       }
-      return { id: source.id, status: 'ok', ms: Date.now() - started, found: out.docs.length, stored };
+      return { id: source.id, status: 'ok', ms: Date.now() - started, found: out.docs.length, stored, filtered };
     })();
     return await Promise.race([
       work,
@@ -141,6 +146,7 @@ export async function runAll({ onlySource = null, onlyState = null } = {}) {
     skipped: results.filter((r) => r.status === 'skipped').length,
     empty: results.filter((r) => r.status === 'ok-empty').map((r) => r.id),
     newOrUpdated: results.reduce((n, r) => n + (r.stored || 0), 0),
+    filteredByQuality: results.reduce((n, r) => n + (r.filtered || 0), 0),
     closingSoon: closing,
     totalJobs: total,
     failures: results.filter((r) => r.error).map((r) => ({ id: r.id, error: r.error })),

@@ -6,6 +6,43 @@ const CATEGORIES = ['new', 'active', 'closing_soon', 'expired'];
 const MAX_TITLE = 300;
 export const MAX_IMPORT = 2000;
 
+// ---- Title quality gate (mirror of aggregator/src/quality.js — keep in sync)
+// Aggregator jobs auto-publish, so navigation junk ("Click Here"), exam
+// logistics (corrigenda, admission certificates) and other non-recruitment
+// titles must be rejected at the door. Four tiers, cheapest first.
+const JUNK_TITLE = /^(click\s?here|check\s?here|read\s?(more|details)|view\s?(details|pdf|more|all)?|download(\s?(here|pdf))?|details|more(\s?(info|details))?|apply\s?online|login|home|back|next|previous|english(\s+version)?|hindi(\s+version)?|notification(\s+board)?|advertisements?|press\s?(note|release|conference)?|important\s?(notice|links)?|links?|menu|sitemap|contact\s?us|about\s?us|whats?\s?new|latest|archives?|old\s?notifications?|results?( & archive)?|recruitment results?( & archive)?|recruitment related announcements?|rti|faq|faqs|form\s*-?\s*[a-z0-9]?|exam schedule|online application|one time registration \(?otr\)?|self attestation form|bonafide certificate)$/i;
+
+const NON_JOB = /\b(workshop|seminar|conference|webinar|awareness|tender|auction|holiday|merit\s?list|answer\s?key|admit\s?card|exam\s?result|result\s?of|final\s?result|orientation|foundation\s?day|annual\s?day|photo\s?gallery|news\s?letter|newsletter|calendar|manual|handbook|booklet|annual report|walk[- ]?in\s?(date|time|schedule)|admission certificate|city of examination|revised dates?|date change|revised programme|corrigendums?|programme for (preliminary|main|written|computer)?\s*examination|instructions? to (the )?candidates?|use of scribe|omr\s?(sheet)?|eligible\s?(&|and)\s?rejected candidates list|cancellation of advertisement|status of\s+lateral\s+recruitment\s+cases|status of recruitment cases)\b/i;
+
+const NON_JOB_NON_LATIN = /(दिवस\s?के\s?उपलक्ष|जन्म\s?नोंद|मार्गदर्शक|जागृत|सार्वजनिक\s?माहिति|ವಿವರ|ಮಾಹಿತಿ\s?ಅಧಿಕಾರಿ|ಜಾಗೃತ|ದಾಖಲೆ|प्रदर्शनी)/u;
+
+const MIN_LENGTH = 16;
+
+const RECRUIT_SIGNAL = /recruit|vacanc|walk[- ]?in|apprentic|engagement|\bappointment\b|\bselection\b|interview|shortlisting|empanel|deputation|scrutiny of documents|post(s)?\s+(of|for|to)\b|for\s+(the\s+)?posts?\b|advertis|\badvt\b|cat\.?\s*no|online forms?|application forms?|last\s+date|\b(constable|nurse|peon|clerk|driver|guard|cook|mts|chowkidar|sachiv|secretary|librarian|doctor|specialist|demonstrator|professor|lecturer|assistant professor|junior engineer|engineer|technician|supervisor|inspector|sub[- ]?inspector|patwari|revenue officer|surveyor|panchayat secretary)\b|\bjobs?\b|hiring|naukri|bharti|walkin/i;
+
+const NON_LATIN = /[\p{Script=Devanagari}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Bengali}\p{Script=Gujarati}\p{Script=Gurmukhi}\p{Script=Malayalam}\p{Script=Oriya}\p{Script=Arabic}]/u;
+
+function coreTitle(t) {
+  return t
+    .replace(/\(\s*(view|details|more|pdf|download|link)\s*\)/gi, ' ')
+    .replace(/^[\s\-–—|]+|[\s\-–—|]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function isRecruitmentTitle(title) {
+  const t = String(title || '').replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  const core = coreTitle(t);
+  if (!core) return false;
+  if (JUNK_TITLE.test(core)) return false;
+  if (NON_JOB.test(t)) return false;
+  if (core.length < MIN_LENGTH && !/\d/.test(core)) return false;
+  if (NON_LATIN.test(t)) return !NON_JOB_NON_LATIN.test(t);
+  return RECRUIT_SIGNAL.test(t);
+}
+// ---- End quality gate
+
 export function hashId(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
 }
@@ -28,6 +65,7 @@ export function mapAggregatorJob(item, now = new Date()) {
 
   const title = String(item.title || '').trim();
   if (!title) return { ok: false, error: 'missing title' };
+  if (!isRecruitmentTitle(title)) return { ok: false, error: 'low-quality title (not a recruitment notice)' };
 
   const url = String(item.notificationUrl || item.applyUrl || '').trim();
   if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'missing notificationUrl' };
@@ -49,7 +87,7 @@ export function mapAggregatorJob(item, now = new Date()) {
     doc: {
       title: title.slice(0, MAX_TITLE),
       slug,
-      description: `Imported from ${organization} (${sourceId}). Not verified.`,
+      description: `Official recruitment notification from ${organization}. Check the official notification for full details and eligibility before applying.`,
       department: organization.slice(0, 200),
       organization,
       examType: 'other',
@@ -60,8 +98,10 @@ export function mapAggregatorJob(item, now = new Date()) {
       notificationPdfUrl: url,
       applyLink: String(item.applyUrl || url).trim(),
       source: 'aggregator',
-      verificationStatus: 'pending',
-      verificationNotes: 'Imported from aggregator. Needs admin review before publishing.',
+      // Auto-publish: the title passed the quality gate, and the job links to
+      // its official government notification. Admin can still reject it later.
+      verificationStatus: 'verified',
+      verificationNotes: 'Auto-published by aggregator sync (title passed quality gate).',
       jobStatus: expired ? 'closed' : 'active',
       aggregatorMeta: { id, sourceId, category, fetchedAt },
     },

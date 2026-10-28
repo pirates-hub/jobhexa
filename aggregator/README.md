@@ -16,9 +16,11 @@ Optional: `npm install --include=optional` for Playwright (JS-rendered pages) an
 
 CLI filters: `--source <id>` (see `sources.json`), `--state "Tamil Nadu"`.
 
-## Auto-import into the admin Aggregator Inbox
+## Auto-import into the admin Aggregator Inbox (auto-publish)
 
-The aggregator stores jobs in its own SQLite DB; the website keeps them in Mongo. After every run (`--once` and each scheduled run) the aggregator POSTs `data/jobs.json` to the server, so Admin → **Aggregator Inbox** fills up automatically — no manual "Upload jobs.json" needed. Imported jobs land as `pending` (hidden from the public site) until an admin approves them.
+The aggregator stores jobs in its own SQLite DB; the website keeps them in Mongo. After every run (`--once` and each scheduled run) the aggregator POSTs `data/jobs.json` to the server, so Admin → **Aggregator Inbox** fills up automatically — no manual "Upload jobs.json" needed.
+
+Titles are quality-gated on both sides (`src/quality.js` in the aggregator, mirrored in the server mapper): navigation junk ("Click Here", "View"), non-recruitment notices (results, corrigenda, admit cards, exam logistics, workshops, manuals) and semantically empty titles are rejected; everything else — real government recruitment notices in English **or** any official language — is **published immediately** (`verified`), so current Central + state notifications appear on the public site with no approval step. The run summary reports `filteredByQuality`, and `node scripts/purge-junk.mjs` sweeps junk out of an existing SQLite store.
 
 1. **Server** (`server/.env`): `AGG_SYNC_SECRET=<random hex>` — without it the endpoint answers 503 (sync disabled).
 2. **Aggregator** (`aggregator/.env`): `AGG_SYNC_URL=<server>/api/aggregator/sync` + the same `AGG_SYNC_SECRET`.

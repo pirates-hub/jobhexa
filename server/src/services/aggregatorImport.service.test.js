@@ -33,11 +33,11 @@ describe('aggregator import payload', () => {
 });
 
 describe('mapAggregatorJob', () => {
-  it('maps to a pending, admin-only aggregator job', () => {
+  it('maps to a verified, auto-published aggregator job', () => {
     const mapped = mapAggregatorJob(sample, now);
     expect(mapped.ok).toBe(true);
     expect(mapped.doc.source).toBe('aggregator');
-    expect(mapped.doc.verificationStatus).toBe('pending');
+    expect(mapped.doc.verificationStatus).toBe('verified');
     expect(mapped.doc.examType).toBe('other');
     expect(mapped.doc.department).toBe('Kerala Public Service Commission');
     expect(mapped.doc.state).toBe('Kerala');
@@ -78,9 +78,9 @@ describe('mapAggregatorJob', () => {
 
 // --- importJobItems (batched upsert used by both the upload and auto-sync) ---
 
-const item = (id, title) => ({
+const item = (id, name) => ({
   id,
-  title,
+  title: `${name} Recruitment 2026 for the Post of Constable`,
   notificationUrl: `https://example.gov.in/${id}.pdf`,
   source: 'upsc',
   state: 'All India',
@@ -120,9 +120,9 @@ describe('importJobItems', () => {
     const ops = Job.bulkWrite.mock.calls[0][0];
     expect(ops).toHaveLength(2);
     expect(ops[0].updateOne.filter).toEqual({ 'aggregatorMeta.id': 'a' });
-    expect(ops[1].insertOne.document.title).toBe('Beta');
+    expect(ops[1].insertOne.document.title).toContain('Beta');
     expect(ops[1].insertOne.document.source).toBe('aggregator');
-    expect(ops[1].insertOne.document.verificationStatus).toBe('pending');
+    expect(ops[1].insertOne.document.verificationStatus).toBe('verified');
   });
 
   it('never touches Mongo when every item is invalid', async () => {
@@ -141,7 +141,8 @@ describe('importJobItems', () => {
 
     const result = await importJobItems([item('x', 'Gamma'), item('y', 'Delta')]);
     expect(result).toMatchObject({ received: 2, created: 1, updated: 0, skipped: 1 });
-    expect(result.errors[0]).toMatchObject({ title: 'Gamma', error: 'E11000 duplicate key' });
+    expect(result.errors[0].title).toContain('Gamma');
+    expect(result.errors[0]).toMatchObject({ error: 'E11000 duplicate key' });
   });
 
   it('counts the batch as skipped when bulkWrite fails without detail', async () => {

@@ -132,8 +132,9 @@ function AdminAggregator() {
               <p className="text-sm font-medium text-slate-500 mt-1">
                 Upload <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">jobs.json</span> from
                 <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded mx-1">aggregator/data/</span>
-                or the <span className="font-semibold">jobs-export</span> artifact of a GitHub Actions run. Imported jobs are marked
-                <span className="font-semibold"> pending</span> and hidden from the public site.
+                or the <span className="font-semibold">jobs-export</span> artifact of a GitHub Actions run. Titles are
+                quality-checked: recruitment notices are <span className="font-semibold">published immediately</span>,
+                junk (nav links, results, corrigenda) is rejected.
               </p>
             </div>
             <div className="shrink-0">
