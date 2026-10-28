@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { extractJobs, mapAggregatorJob, hashId, buildUpdate } from './aggregatorImport.service.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { extractJobs, mapAggregatorJob, hashId, buildUpdate, importJobItems } from './aggregatorImport.service.js';
+
+vi.mock('../models/Job.js', () => ({
+  default: { find: vi.fn(), bulkWrite: vi.fn() },
+}));
+
+import Job from '../models/Job.js';
 
 const now = new Date('2026-10-18T10:00:00Z');
 
@@ -67,5 +73,83 @@ describe('mapAggregatorJob', () => {
     expect(filter).toEqual({ 'aggregatorMeta.id': 'abc123' });
     expect(update.$set).not.toHaveProperty('verificationStatus');
     expect(update.$set.jobStatus).toBe('active');
+  });
+});
+
+// --- importJobItems (batched upsert used by both the upload and auto-sync) ---
+
+const item = (id, title) => ({
+  id,
+  title,
+  notificationUrl: `https://example.gov.in/${id}.pdf`,
+  source: 'upsc',
+  state: 'All India',
+});
+
+const withExisting = (ids) => {
+  Job.find.mockReturnValue({
+    select: () => ({ lean: async () => ids.map((id) => ({ aggregatorMeta: { id } })) }),
+  });
+};
+
+describe('importJobItems', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Job.bulkWrite.mockResolvedValue({ insertedCount: 0, matchedCount: 0 });
+  });
+
+  it('splits the batch into inserts and updates with one existing-ids lookup', async () => {
+    withExisting(['a']);
+    Job.bulkWrite.mockResolvedValue({ insertedCount: 1, matchedCount: 1 });
+
+    const result = await importJobItems([
+      item('a', 'Alpha'),
+      item('b', 'Beta'),
+      { title: '' }, // invalid: no title
+      { title: 'No url' }, // invalid: no notificationUrl
+    ]);
+
+    expect(result).toMatchObject({ received: 4, created: 1, updated: 1, skipped: 2 });
+    expect(result.errors).toHaveLength(2);
+
+    // One find + one bulkWrite — never a query per job.
+    expect(Job.find).toHaveBeenCalledTimes(1);
+    expect(Job.find).toHaveBeenCalledWith({ 'aggregatorMeta.id': { $in: ['a', 'b'] } });
+    expect(Job.bulkWrite).toHaveBeenCalledTimes(1);
+
+    const ops = Job.bulkWrite.mock.calls[0][0];
+    expect(ops).toHaveLength(2);
+    expect(ops[0].updateOne.filter).toEqual({ 'aggregatorMeta.id': 'a' });
+    expect(ops[1].insertOne.document.title).toBe('Beta');
+    expect(ops[1].insertOne.document.source).toBe('aggregator');
+    expect(ops[1].insertOne.document.verificationStatus).toBe('pending');
+  });
+
+  it('never touches Mongo when every item is invalid', async () => {
+    const result = await importJobItems([{ title: '' }, { title: 'No url' }]);
+    expect(result).toMatchObject({ received: 2, created: 0, updated: 0, skipped: 2 });
+    expect(Job.find).not.toHaveBeenCalled();
+    expect(Job.bulkWrite).not.toHaveBeenCalled();
+  });
+
+  it('recovers per-op write failures from the bulk result', async () => {
+    withExisting([]);
+    Job.bulkWrite.mockRejectedValue(Object.assign(new Error('bulk failed'), {
+      writeErrors: [{ index: 0, err: { message: 'E11000 duplicate key' } }],
+      result: { insertedCount: 1, matchedCount: 0 },
+    }));
+
+    const result = await importJobItems([item('x', 'Gamma'), item('y', 'Delta')]);
+    expect(result).toMatchObject({ received: 2, created: 1, updated: 0, skipped: 1 });
+    expect(result.errors[0]).toMatchObject({ title: 'Gamma', error: 'E11000 duplicate key' });
+  });
+
+  it('counts the batch as skipped when bulkWrite fails without detail', async () => {
+    withExisting([]);
+    Job.bulkWrite.mockRejectedValue(new Error('connection reset'));
+
+    const result = await importJobItems([item('x', 'Gamma'), item('y', 'Delta')]);
+    expect(result).toMatchObject({ received: 2, created: 0, updated: 0, skipped: 2 });
+    expect(result.errors[0].error).toContain('connection reset');
   });
 });

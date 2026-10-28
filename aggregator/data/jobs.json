@@ -158,7 +158,7 @@
     "lastDate": "2026-10-27",
     "notificationUrl": "https://dsssb.delhi.gov.in/dsssb/vacancy-notice-advertisement-no-052026-0",
     "applyUrl": "https://dsssb.delhi.gov.in/dsssb/vacancy-notice-advertisement-no-052026-0",
-    "category": "closing_soon",
+    "category": "expired",
     "fetchedAt": "2026-10-27T16:52:14.800Z"
   },
   {
@@ -483,7 +483,7 @@
     "notificationUrl": "https://www.ibps.in/wp-content/uploads/Addendum-06.10.pdf",
     "applyUrl": "https://www.ibps.in/wp-content/uploads/Addendum-06.10.pdf",
     "category": "expired",
-    "fetchedAt": "2026-10-27T16:53:26.208Z"
+    "fetchedAt": "2026-10-28T01:35:43.656Z"
   },
   {
     "id": "836b6bd86fe98ca00a628b392459e27f41d83e3708928ad18f68417ef1b4e190",
@@ -591,7 +591,7 @@
     "notificationUrl": "https://www.ibps.in/wp-content/uploads/44.-Advertisement_for_BF__BF_Tech._Exec._Secretary_-On_contract.pdf",
     "applyUrl": "https://www.ibps.in/wp-content/uploads/44.-Advertisement_for_BF__BF_Tech._Exec._Secretary_-On_contract.pdf",
     "category": "expired",
-    "fetchedAt": "2026-10-27T16:53:42.329Z"
+    "fetchedAt": "2026-10-28T01:35:54.518Z"
   },
   {
     "id": "43ed1fb39e57aa40169b093f382211a98a51cb5a92688c1ffcbdeffebc6b4e8d",
@@ -609,7 +609,7 @@
     "notificationUrl": "https://ibpsreg.ibps.in/ibpsvpspt26/",
     "applyUrl": "https://ibpsreg.ibps.in/ibpsvpspt26/",
     "category": "expired",
-    "fetchedAt": "2026-10-27T16:53:43.075Z"
+    "fetchedAt": "2026-10-28T01:35:55.521Z"
   },
   {
     "id": "983284f068bd208ee8b98df094af400e1b16dd88a403b62d58a787f5372d0ebd",

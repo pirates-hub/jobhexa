@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
 import slugify from 'slugify';
+import Job from '../models/Job.js';
 
 const CATEGORIES = ['new', 'active', 'closing_soon', 'expired'];
 const MAX_TITLE = 300;
+export const MAX_IMPORT = 2000;
 
 export function hashId(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -87,4 +89,70 @@ export function buildUpdate(id, doc) {
       },
     },
   };
+}
+
+// Upsert a batch of raw aggregator items into Mongo, keyed on
+// aggregatorMeta.id — shared by the admin upload and the aggregator auto-sync
+// endpoint so both behave identically (created/updated/skipped counts).
+// Two round trips total (find existing ids + one unordered bulk write) instead
+// of two queries per job: a ~200-job export imports in well under a second
+// even against a remote Atlas cluster, instead of timing out the sync client.
+export async function importJobItems(items) {
+  let skipped = 0;
+  const errors = [];
+  const valid = [];
+
+  for (const item of items) {
+    const mapped = mapAggregatorJob(item);
+    if (!mapped.ok) {
+      skipped += 1;
+      errors.push({ title: item?.title || null, error: mapped.error });
+      continue;
+    }
+    valid.push(mapped);
+  }
+
+  if (valid.length === 0) {
+    return { received: items.length, created: 0, updated: 0, skipped, errors: errors.slice(0, 20) };
+  }
+
+  const existingIds = new Set(
+    (
+      await Job.find({ 'aggregatorMeta.id': { $in: valid.map((v) => v.id) } })
+        .select('aggregatorMeta.id')
+        .lean()
+    ).map((d) => String(d.aggregatorMeta.id)),
+  );
+
+  const ops = valid.map((mapped) => (existingIds.has(String(mapped.id))
+    ? { updateOne: { filter: buildImportFilter(mapped.id), update: buildUpdate(mapped.id, mapped.doc).update } }
+    : { insertOne: { document: mapped.doc } }));
+
+  let created = 0;
+  let updated = 0;
+  try {
+    const res = await Job.bulkWrite(ops, { ordered: false });
+    created = res.insertedCount || 0;
+    updated = res.matchedCount || 0;
+  } catch (err) {
+    // Unordered writes still apply every op that could succeed; the driver
+    // rejects with the per-op errors and the partial counts attached, so
+    // recover them instead of losing the whole batch.
+    const writeErrors = Array.isArray(err?.writeErrors) ? err.writeErrors : [];
+    created = err?.result?.insertedCount ?? 0;
+    updated = err?.result?.matchedCount ?? 0;
+    if (writeErrors.length === 0 && !err?.result) {
+      // Not a per-op write failure (connection hiccup, etc.): report once.
+      skipped += valid.length;
+      errors.push({ title: null, error: err.message });
+    } else {
+      skipped += writeErrors.length;
+      for (const we of writeErrors.slice(0, 20)) {
+        const mapped = typeof we.index === 'number' ? valid[we.index] : null;
+        errors.push({ title: mapped?.doc?.title || null, error: we.err?.message || String(we.message || we) });
+      }
+    }
+  }
+
+  return { received: items.length, created, updated, skipped, errors: errors.slice(0, 20) };
 }

@@ -1,9 +1,8 @@
+import crypto from 'node:crypto';
 import Job from '../models/Job.js';
 import AdminAuditLog from '../models/AdminAuditLog.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
-import { extractJobs, mapAggregatorJob, buildUpdate } from '../services/aggregatorImport.service.js';
-
-const MAX_IMPORT = 2000;
+import { extractJobs, importJobItems, MAX_IMPORT } from '../services/aggregatorImport.service.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -17,50 +16,49 @@ export const importAggregatorJobs = async (req, res) => {
       return errorResponse(res, `Too many jobs in one import (max ${MAX_IMPORT})`, 413);
     }
 
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
-    const errors = [];
-
-    for (const item of items) {
-      const mapped = mapAggregatorJob(item);
-      if (!mapped.ok) {
-        skipped += 1;
-        errors.push({ title: item?.title || null, error: mapped.error });
-        continue;
-      }
-      try {
-        const existing = await Job.findOne({ 'aggregatorMeta.id': mapped.id }).select('_id');
-        if (existing) {
-          const { filter, update } = buildUpdate(mapped.id, mapped.doc);
-          await Job.updateOne(filter, update);
-          updated += 1;
-        } else {
-          await Job.create(mapped.doc);
-          created += 1;
-        }
-      } catch (err) {
-        skipped += 1;
-        errors.push({ title: mapped.doc.title, error: err.message });
-      }
-    }
+    const result = await importJobItems(items);
 
     await AdminAuditLog.create({
       admin: req.user._id,
       action: 'import_aggregator_jobs',
       targetType: 'Job',
       targetId: null,
-      details: { received: items.length, created, updated, skipped },
+      details: { received: result.received, created: result.created, updated: result.updated, skipped: result.skipped },
       ipAddress: req.ip,
     });
 
-    return successResponse(res, {
-      received: items.length,
-      created,
-      updated,
-      skipped,
-      errors: errors.slice(0, 20),
-    });
+    return successResponse(res, result);
+  } catch (error) {
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// Machine-to-machine import used by the aggregator's auto-sync (cron / GitHub
+// Actions). It has no admin session, so it authenticates with the shared
+// AGG_SYNC_SECRET header instead of the protect/adminOnly middleware, and
+// therefore must stay registered on a router without those middlewares.
+export const syncAggregatorJobs = async (req, res) => {
+  try {
+    const expected = process.env.AGG_SYNC_SECRET;
+    if (!expected) {
+      return errorResponse(res, 'Aggregator sync is disabled (AGG_SYNC_SECRET not set)', 503);
+    }
+    const given = Buffer.from(String(req.get('x-aggregator-sync-secret') || ''));
+    const want = Buffer.from(expected);
+    if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+      return errorResponse(res, 'Invalid sync secret', 401);
+    }
+
+    const items = extractJobs(req.body);
+    if (!items) {
+      return errorResponse(res, 'Send a jobs array or { jobs: [...] }', 400);
+    }
+    if (items.length > MAX_IMPORT) {
+      return errorResponse(res, `Too many jobs in one import (max ${MAX_IMPORT})`, 413);
+    }
+
+    const result = await importJobItems(items);
+    return successResponse(res, { ...result, sync: true });
   } catch (error) {
     return errorResponse(res, error.message, 500);
   }

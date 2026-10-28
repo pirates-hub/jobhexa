@@ -12,9 +12,19 @@ node index.js --once                  # full run
 node index.js                         # scheduler, default every 3 hours
 ```
 
-Optional: `npm install --include=optional` for Playwright (JS-rendered pages) and tesseract.js (OCR fallback). Env knobs: `AGG_CRON`, `AGG_PARALLEL`, `AGG_DELAY_MS`, `AGG_TIMEOUT_MS`, `AGG_RETRIES`, `AGG_DB`, `AGG_UA`, `AGG_LOG_LEVEL`.
+Optional: `npm install --include=optional` for Playwright (JS-rendered pages) and tesseract.js (OCR fallback). Env knobs: `AGG_CRON`, `AGG_PARALLEL`, `AGG_DELAY_MS`, `AGG_TIMEOUT_MS`, `AGG_RETRIES`, `AGG_DB`, `AGG_UA`, `AGG_LOG_LEVEL`, `AGG_SYNC_URL`, `AGG_SYNC_SECRET`. Env can live in `aggregator/.env` (gitignored, see `.env.example`) — plain `KEY=value` lines, real environment variables always win.
 
 CLI filters: `--source <id>` (see `sources.json`), `--state "Tamil Nadu"`.
+
+## Auto-import into the admin Aggregator Inbox
+
+The aggregator stores jobs in its own SQLite DB; the website keeps them in Mongo. After every run (`--once` and each scheduled run) the aggregator POSTs `data/jobs.json` to the server, so Admin → **Aggregator Inbox** fills up automatically — no manual "Upload jobs.json" needed. Imported jobs land as `pending` (hidden from the public site) until an admin approves them.
+
+1. **Server** (`server/.env`): `AGG_SYNC_SECRET=<random hex>` — without it the endpoint answers 503 (sync disabled).
+2. **Aggregator** (`aggregator/.env`): `AGG_SYNC_URL=<server>/api/aggregator/sync` + the same `AGG_SYNC_SECRET`.
+3. Run `node index.js --once` — the log line `aggregator sync: inbox imported` with `received/created/updated` counts confirms it.
+
+Notes: sync is best-effort (a failed sync warns but never fails the run), idempotent (server upserts on `aggregatorMeta.id`), and unconfigured sync is skipped with an info log. For GitHub Actions, add repo secrets `AGG_SYNC_URL` (public server URL) and `AGG_SYNC_SECRET`; the workflow passes them through. The manual upload button still works and behaves identically.
 
 ## How to add a new state (config only)
 

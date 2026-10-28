@@ -7,6 +7,7 @@
 //   node index.js                         scheduler (default every 3 hours)
 import cron from 'node-cron';
 import { runAll } from './src/run.js';
+import { syncToServer } from './src/sync.js';
 import { logger } from './src/logger.js';
 import { CRON_SCHEDULE } from './src/config.js';
 
@@ -19,6 +20,8 @@ const get = (flag) => {
 if (args.includes('--once')) {
   try {
     const summary = await runAll({ onlySource: get('--source'), onlyState: get('--state') });
+    // Auto-import into the admin inbox (skipped when AGG_SYNC_* is unset).
+    await syncToServer();
     console.log(JSON.stringify(summary, null, 2));
 
     // External government sites are flaky and frequently reject or timeout.
@@ -40,6 +43,7 @@ if (args.includes('--once')) {
   cron.schedule(CRON_SCHEDULE, async () => {
     try {
       await runAll();
+      await syncToServer();
     } catch (err) {
       logger.error({ err: err.message }, 'scheduled run failed');
     }

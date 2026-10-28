@@ -25,6 +25,11 @@ jobs:
           node -e "import('node:sqlite').then(()=>console.log('node:sqlite OK')).catch(e=>{console.error('node:sqlite FAIL:', e.message); process.exit(1)})"
       - working-directory: aggregator
         run: node index.js --once ${{ inputs.source && format('--source {0}', inputs.source) || '' }}
+        env:
+          # Optional: auto-import jobs.json into the admin Aggregator Inbox.
+          # Add these repo secrets to enable; without them sync is skipped.
+          AGG_SYNC_URL: ${{ secrets.AGG_SYNC_URL }}
+          AGG_SYNC_SECRET: ${{ secrets.AGG_SYNC_SECRET }}
       - uses: actions/upload-artifact@v4
         with:
           name: jobs-export

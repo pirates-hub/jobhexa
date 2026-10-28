@@ -128,3 +128,56 @@ export async function fetchUrl(url, { timeoutMs = REQ_TIMEOUT_MS, retries = 3, i
   }
   return { status: 0, error: lastError?.message || 'fetch failed', url: current };
 }
+
+// POST a JSON body over a one-shot socket (agent: false — never pooled) and
+// return a fetch-like { ok, status, json() }. Deliberately avoids the global
+// fetch/undici: its keep-alive handles trip a libuv assertion when the CLI
+// calls process.exit() right after a sync, and it keeps this module's
+// "node builtins only" guarantee.
+export function postJson(url, { body = '', headers = {}, timeoutMs = REQ_TIMEOUT_MS } = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const lib = u.protocol === 'https:' ? https : http;
+    const payload = Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
+    let settled = false;
+    function finish(fn, value) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    }
+    const timer = setTimeout(() => finish(reject, new Error(`Timeout after ${timeoutMs}ms for ${url}`)), timeoutMs);
+    const req = lib.request({
+      hostname: u.hostname,
+      port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      path: `${u.pathname}${u.search}`,
+      method: 'POST',
+      agent: false,
+      timeout: timeoutMs,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': payload.length,
+        'User-Agent': USER_AGENT,
+        ...headers,
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('error', (err) => finish(reject, err));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        const status = res.statusCode || 0;
+        finish(resolve, {
+          ok: status >= 200 && status < 300,
+          status,
+          json: async () => JSON.parse(text),
+        });
+      });
+      // Server closed mid-body: 'end' never fires — reject explicitly.
+      res.on('close', () => finish(reject, new Error(`Connection closed before response completed for ${url}`)));
+    });
+    req.on('timeout', () => req.destroy(new Error(`Timeout after ${timeoutMs}ms for ${url}`)));
+    req.on('error', (err) => finish(reject, err));
+    req.end(payload);
+  });
+}
