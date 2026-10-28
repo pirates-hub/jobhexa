@@ -79,7 +79,7 @@ function JobCard({ job, hideSave = false, showEligibility = false }) {
           <span className="truncate min-w-0 flex-1">{job.department}{job.organization && <span className="text-slate-400 font-normal"> — {job.organization}</span>}</span>
         </p>
 
-        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 gap-x-6 gap-y-3 sm:gap-y-3.5 text-[13px] sm:text-[13.5px] mb-4 sm:mb-5 p-3 sm:p-4 rounded-2xl bg-slate-50/70 border border-slate-100 min-w-0">
+        <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-x-4 min-[360px]:gap-x-6 gap-y-3 sm:gap-y-3.5 text-[13px] sm:text-[13.5px] mb-4 sm:mb-5 p-3 sm:p-4 rounded-2xl bg-slate-50/70 border border-slate-100 min-w-0">
           {job.applicationEndDate && (
             <div className="flex flex-col gap-0.5 min-w-0">
               <span className="text-[11px] font-bold tracking-widest uppercase text-slate-400">Deadline</span>

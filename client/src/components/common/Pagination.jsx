@@ -44,14 +44,14 @@ function Pagination({ currentPage, totalPages, onPageChange }) {
 
       {getPageNumbers().map((page, idx) =>
         page === '...' ? (
-          <span key={`ellipsis-${idx}`} className="px-1.5 sm:px-3 py-2 text-[13px] sm:text-sm text-gray-500 shrink-0">
+          <span key={`ellipsis-${idx}`} className="hidden sm:inline px-1.5 sm:px-3 py-2 text-[13px] sm:text-sm text-gray-500 shrink-0">
             ...
           </span>
         ) : (
           <button
             key={page}
             onClick={() => onPageChange(page)}
-            className={`px-2.5 sm:px-3 py-2 rounded-lg text-[13px] sm:text-sm font-medium border transition shrink-0 min-w-[36px] sm:min-w-[40px] ${
+            className={`hidden sm:inline-flex items-center justify-center px-2.5 sm:px-3 py-2 rounded-lg text-[13px] sm:text-sm font-medium border transition shrink-0 min-w-[36px] sm:min-w-[40px] ${
               currentPage === page
                 ? 'bg-primary-700 text-white border-primary-700'
                 : 'border-gray-300 hover:bg-primary-50'
@@ -61,6 +61,10 @@ function Pagination({ currentPage, totalPages, onPageChange }) {
           </button>
         )
       )}
+
+      <span className="sm:hidden px-2 py-2 text-[13px] font-bold text-slate-700 whitespace-nowrap">
+        Page {currentPage} / {totalPages}
+      </span>
 
       <button
         onClick={() => onPageChange(currentPage + 1)}

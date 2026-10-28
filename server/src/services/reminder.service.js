@@ -162,10 +162,9 @@ export const sendEligibleDigest = async () => {
     if (!jobs.length) return 0;
     const users = await User.find({ email: { $exists: true, $ne: '' } }).limit(500);
     const base = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+    const logType = `daily_eligible_${todayStr}`;
     let sent = 0;
     for (const user of users) {
-      const already = await Notification.findOne({ user: user._id, type: 'system', title: { $regex: '^You are eligible' }, createdAt: { $gte: new Date(todayStr) } });
-      if (already) continue;
       const matches = [];
       for (const j of jobs) {
         try {
@@ -180,8 +179,19 @@ export const sendEligibleDigest = async () => {
       const textLines = matches.map(({ job: j }, i) => `${i + 1}. ${j.title} — last date: ${dl(j.applicationEndDate)} — ${base}/jobs/${j.slug}`).join('\n');
       const htmlLines = matches.map(({ job: j }) => `<li><a href="${base}/jobs/${j.slug}"><strong>${j.title}</strong></a> — last date: ${dl(j.applicationEndDate)}</li>`).join('');
       const title = `You are eligible for ${matches.length} job(s) today`;
-      await Notification.create({ user: user._id, type: 'system', title, message: `You are eligible for these ${matches.length} job(s) today:\n${textLines}` });
-      if (user.notificationPreferences?.email !== false && user.email) {
+
+      // In-app bell: once per day. Kept independent of email so a mail
+      // failure never hides the alert.
+      const alreadyInApp = await Notification.findOne({ user: user._id, type: 'system', title: { $regex: '^You are eligible' }, createdAt: { $gte: new Date(todayStr) } });
+      if (!alreadyInApp) {
+        await Notification.create({ user: user._id, type: 'system', title, message: `You are eligible for these ${matches.length} job(s) today:\n${textLines}` });
+      }
+
+      // Email: deduped by NotificationLog, NOT by the in-app notification.
+      // A failed send stays unlogged, so the 7:45 retry / next boot resends
+      // instead of silently losing the whole day.
+      const mailLogged = await NotificationLog.findOne({ user: user._id, notificationType: logType });
+      if (user.notificationPreferences?.email !== false && user.email && !mailLogged) {
         try {
           const { sendEmail } = await import('../config/nodemailer.js');
           await sendEmail({
@@ -190,9 +200,16 @@ export const sendEligibleDigest = async () => {
             html: `<h2>${title}</h2><p>Hi ${user.name || ''}, based on your profile you can apply for:</p><ol>${htmlLines}</ol><p>Deadlines approach fast — apply early.</p>`,
             text: `Hi ${user.name || ''}, you are eligible for:\n${textLines}`,
           });
-        } catch (e) { console.error(`[Eligible] Email failed for ${user.email}: ${e.message}`); }
+          await NotificationLog.updateOne(
+            { user: user._id, job: matches[0].job._id, notificationType: logType },
+            { $set: { sentAt: new Date(), method: 'both' } },
+            { upsert: true }
+          );
+          sent++;
+        } catch (e) {
+          console.error(`[Eligible] Email failed for ${user.email}: ${e.message} — will retry on the next run`);
+        }
       }
-      sent++;
     }
     console.log(`[Eligible] Sent ${sent} eligible digests`);
     return sent;
@@ -214,9 +231,10 @@ export const startReminderCron = (opts = {}) => {
   // free-tier instance is always asleep, so mails silently never fired.
   cron.schedule('30 7 * * *', () => { sendDailyDigest().catch(console.error); }, tz); // 7:30 AM IST digest
   cron.schedule('0 7 * * *', () => { sendEligibleDigest().catch(console.error); }, tz); // 7 AM IST eligible-jobs mail
+  cron.schedule('45 7 * * *', () => { sendEligibleDigest().catch(console.error); }, tz); // 7:45 IST retry for failed sends
   cron.schedule('0 8 * * *', () => { checkStudyPlans().catch(console.error); }, tz); // 8 AM IST study plans
   cron.schedule('0 9 * * *', () => { checkDeadlines().catch(console.error); }, tz); // 9 AM IST deadlines
-  console.log('[Reminder] Crons: 7 AM eligible mail, 7:30 AM digest, 8 AM study plans, 9 AM deadlines IST (Asia/Kolkata)');
+  console.log('[Reminder] Crons: 7 AM eligible mail (retry 7:45), 7:30 AM digest, 8 AM study plans, 9 AM deadlines IST (Asia/Kolkata)');
   verifySmtpOnBoot();
   if (opts.runOnBoot !== false) {
     // Catch-up: if server was off at cron time, send due mails immediately on boot

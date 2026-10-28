@@ -1,16 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 import jobService from '../services/jobService';
 import JobCard from '../components/jobs/JobCard';
 import JobFilter from '../components/jobs/JobFilter';
 import Pagination from '../components/common/Pagination';
 import Loader from '../components/common/Loader';
 import EmptyState from '../components/common/EmptyState';
+import { useSeo } from '../utils/seo';
 
 function Jobs() {
-  const { user, loading: authLoading } = useAuth();
-  const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
@@ -18,9 +16,13 @@ function Jobs() {
   const [filters, setFilters] = useState({ page: 1, limit: 10 });
   const [showFilters, setShowFilters] = useState(false);
 
+  useSeo({
+    title: 'Government Jobs 2026 – Latest Sarkari Naukri Vacancies',
+    description: 'Browse verified central and state government jobs in India. Filter by exam type, state, qualification and application deadline.',
+    path: '/jobs',
+  });
+
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) { navigate('/login'); return; }
     const fetchJobs = async () => {
       setLoading(true);
       try {
@@ -35,7 +37,7 @@ function Jobs() {
       }
     };
     fetchJobs();
-  }, [filters, user, navigate, authLoading]);
+  }, [filters]);
 
   const handleFilterChange = (newFilters) => {
     setFilters({ ...newFilters, page: 1 });
@@ -44,9 +46,6 @@ function Jobs() {
   const handlePageChange = (page) => {
     setFilters({ ...filters, page });
   };
-
-  if (authLoading) return null;
-  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-[#f8fafc]">
@@ -66,7 +65,7 @@ function Jobs() {
                 Discover verified Sarkari Naukri opportunities across SSC, UPSC, Banking, Railways and more — curated for your next move.
               </p>
             </div>
-            <div className="flex items-stretch sm:items-center gap-2 sm:gap-3 shrink-0 w-full lg:w-auto">
+            <div className="flex flex-wrap items-stretch sm:items-center gap-2 sm:gap-3 shrink-0 w-full lg:w-auto">
               <div className="hidden sm:flex items-center gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 min-w-0">
                 <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white font-bold text-sm shrink-0">◈</div>
                 <div className="min-w-0">
@@ -75,7 +74,7 @@ function Jobs() {
                 </div>
               </div>
               {/* mobile total — compact, no overflow */}
-              <div className="sm:hidden flex-1 min-w-0 flex items-center gap-2 bg-white rounded-xl border border-slate-200 shadow-sm px-3 py-2.5">
+              <div className="sm:hidden w-full min-w-0 flex items-center gap-2 bg-white rounded-xl border border-slate-200 shadow-sm px-3 py-2.5">
                 <div className="w-8 h-8 rounded-lg bg-slate-900 flex items-center justify-center text-white font-bold text-xs shrink-0">◈</div>
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold tracking-widest uppercase text-slate-400 leading-none">Openings</p>
@@ -84,12 +83,12 @@ function Jobs() {
               </div>
               <Link
                 to="/chat"
-                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-primary-600 to-blue-600 text-white px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-bold shadow-md text-[13px] sm:text-sm hover:shadow-lg transition whitespace-nowrap shrink-0"
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 bg-gradient-to-r from-primary-600 to-blue-600 text-white px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-bold shadow-md text-[13px] sm:text-sm hover:shadow-lg transition whitespace-nowrap"
               >
                 ✦ Ask AI
               </Link>
               <button
-                className="md:hidden inline-flex items-center justify-center gap-2 bg-slate-900 text-white px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-bold shadow-md text-[13px] sm:text-sm whitespace-nowrap shrink-0"
+                className="flex-1 md:hidden inline-flex items-center justify-center gap-2 bg-slate-900 text-white px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-bold shadow-md text-[13px] sm:text-sm whitespace-nowrap"
                 onClick={() => setShowFilters(!showFilters)}
                 aria-expanded={showFilters}
               >

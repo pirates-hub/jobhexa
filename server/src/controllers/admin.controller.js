@@ -11,6 +11,59 @@ const logAction = async (adminId, action, targetType, targetId, details, ip) => 
   await AdminAuditLog.create({ admin: adminId, action, targetType, targetId, details, ipAddress: ip });
 };
 
+// New-job email fan-out. Runs in the BACKGROUND: the approval request returns
+// immediately, and the mail queue (200ms gap, Gmail-safe) drains on its own.
+// Every send is written to NotificationLog so Admin > Mails shows what went out.
+const mailNewJobAlerts = async (job) => {
+  const users = await User.find({
+    'notificationPreferences.newJobs': { $ne: false },
+    'notificationPreferences.email': { $ne: false },
+    email: { $exists: true, $ne: '' },
+  }).select('email name _id').limit(500).lean();
+
+  if (!users.length) {
+    console.log(`[Notify] new-job mail: no opted-in recipients for "${job.title}"`);
+    return { sent: 0, total: 0, failed: 0 };
+  }
+
+  const { sendNewJobNotification } = await import('../services/email.service.js');
+  let sent = 0;
+  let failed = 0;
+
+  for (const u of users) {
+    try {
+      await sendNewJobNotification(u, job);
+      sent += 1;
+      await NotificationLog.updateOne(
+        { user: u._id, job: job._id, notificationType: 'new_job_published' },
+        { $set: { sentAt: new Date(), method: 'both' } },
+        { upsert: true }
+      ).catch(() => {});
+    } catch (e) {
+      failed += 1;
+      console.error(`[Notify] new-job mail failed for ${u.email}: ${e.message}`);
+    }
+  }
+
+  console.log(`[Notify] new-job mail "${job.title}": ${sent}/${users.length} sent, ${failed} failed`);
+  return { sent, total: users.length, failed };
+};
+
+// In-app bell entry for every opted-in user (fast; does not block on email).
+const pushInAppAlert = async (job) => {
+  const users = await User.find({ 'notificationPreferences.newJobs': { $ne: false } }).select('_id').limit(2000);
+  if (!users.length) return 0;
+  const docs = users.map((u) => ({
+    user: u._id,
+    type: 'new_job',
+    title: `New job: ${job.title}`,
+    message: `${job.organization} — ${job.totalVacancies || ''} posts. Last date: ${job.applicationEndDate ? new Date(job.applicationEndDate).toLocaleDateString('en-IN') : 'see notification'}. Tap to view.`,
+    jobId: job._id,
+  }));
+  await Notification.insertMany(docs, { ordered: false });
+  return docs.length;
+};
+
 export const getDashboardStats = async (req, res) => {
   const [totalJobs, pendingJobs, totalUsers, activeJobs] = await Promise.all([
     Job.countDocuments(),
@@ -27,8 +80,19 @@ export const getAllJobsAdmin = async (req, res) => {
 };
 
 export const getPendingJobs = async (req, res) => {
-  const jobs = await Job.find({ verificationStatus: 'pending' }).sort({ createdAt: -1 });
-  res.json({ success: true, data: { jobs } });
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+  const [jobs, total] = await Promise.all([
+    Job.find({ verificationStatus: 'pending' })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    Job.countDocuments({ verificationStatus: 'pending' }),
+  ]);
+  res.json({
+    success: true,
+    data: { jobs, total, page, limit, pages: Math.ceil(total / limit) || 1 },
+  });
 };
 
 export const verifyJob = async (req, res) => {
@@ -41,28 +105,12 @@ export const verifyJob = async (req, res) => {
   await job.save();
   await logAction(req.user._id, 'verify_job', 'Job', job._id, {}, req.ip);
   // INSTANT new-job alert — only on the pending -> verified transition (no resend spam)
-  // In-app for everyone opted in; email for those with email alerts on.
+  // In-app bell now, email in the background (never blocks the approval request).
   if (!newlyPublished) return res.json({ success: true, data: { job } });
   try {
-    const users = await User.find({ 'notificationPreferences.newJobs': { $ne: false } }).select('_id').limit(2000);
-    if (users.length) {
-      const docs = users.map((u) => ({
-        user: u._id,
-        type: 'new_job',
-        title: `New job: ${job.title}`,
-        message: `${job.organization} — ${job.totalVacancies || ''} posts. Last date: ${job.applicationEndDate ? new Date(job.applicationEndDate).toLocaleDateString('en-IN') : 'see notification'}. Tap to view.`,
-        jobId: job._id,
-      }));
-      await Notification.insertMany(docs, { ordered: false });
-    }
-    const mailed = await User.find({ 'notificationPreferences.newJobs': { $ne: false }, 'notificationPreferences.email': { $ne: false }, email: { $exists: true } }).select('email name').limit(500);
-    if (mailed.length) {
-      const { sendNewJobNotification } = await import('../services/email.service.js');
-      for (const u of mailed) {
-        try { await sendNewJobNotification(u, job); } catch (e) { console.error('[Notify] new-job mail failed', u.email, e.message); }
-      }
-    }
-  } catch (e) { console.error('[Notify] instant verify failed', e.message); }
+    await pushInAppAlert(job);
+  } catch (e) { console.error('[Notify] in-app verify alert failed', e.message); }
+  mailNewJobAlerts(job).catch((e) => console.error('[Notify] new-job mail batch failed', e.message));
   notifyNewJobTelegram(job);
   res.json({ success: true, data: { job } });
 };
@@ -81,25 +129,9 @@ export const createJob = async (req, res) => {
   const job = await Job.create({ ...req.body, source: 'admin', verificationStatus: 'verified', verifiedBy: req.user._id });
   await logAction(req.user._id, 'create_job', 'Job', job._id, {}, req.ip);
   try {
-    const users = await User.find({ 'notificationPreferences.newJobs': { $ne: false } }).select('_id').limit(2000);
-    if (users.length) {
-      const docs = users.map((u) => ({
-        user: u._id,
-        type: 'new_job',
-        title: `New job: ${job.title}`,
-        message: `${job.organization} — Last date: ${job.applicationEndDate ? new Date(job.applicationEndDate).toLocaleDateString('en-IN') : 'see notification'}.`,
-        jobId: job._id,
-      }));
-      await Notification.insertMany(docs, { ordered: false });
-    }
-    const mailed = await User.find({ 'notificationPreferences.newJobs': { $ne: false }, 'notificationPreferences.email': { $ne: false }, email: { $exists: true } }).select('email name').limit(500);
-    if (mailed.length) {
-      const { sendNewJobNotification } = await import('../services/email.service.js');
-      for (const u of mailed) {
-        try { await sendNewJobNotification(u, job); } catch (e) { console.error('[Notify] new-job mail failed', u.email, e.message); }
-      }
-    }
-  } catch (e) { console.error('[Notify] instant create failed', e.message); }
+    await pushInAppAlert(job);
+  } catch (e) { console.error('[Notify] in-app create alert failed', e.message); }
+  mailNewJobAlerts(job).catch((e) => console.error('[Notify] new-job mail batch failed', e.message));
   res.status(201).json({ success: true, data: { job } });
 };
 

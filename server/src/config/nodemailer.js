@@ -8,10 +8,29 @@ try { dns.setDefaultResultOrder('ipv4first'); } catch {}
 let transporter = null;
 let emailQueue = [];
 let isProcessing = false;
+let warnedBrevo = false;
+
+// Sender header: always show "JobHexa" in the inbox, not the raw Gmail name.
+// Gmail allows a display name on the authenticated account, so a plain
+// SMTP_FROM address is wrapped once — an already-formatted value is left alone.
+export const buildFromHeader = () => {
+  const address = (process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+  if (!address) return '"JobHexa" <no-reply@localhost>';
+  if (address.includes('<')) return address;
+  return `"JobHexa" <${address}>`;
+};
 
 export const getTransporter = () => {
   if (transporter) return transporter;
   const isGmail = (process.env.SMTP_HOST || '').includes('gmail');
+  // Gmail only signs mail for the authenticated account. A custom-domain From
+  // (noreply@jobhexa.com) is rewritten by Google and lands in Spam — warn once.
+  const from = process.env.SMTP_FROM || '';
+  const fromDomain = from.includes('@') ? from.split('@').pop().toLowerCase() : '';
+  const userDomain = (process.env.SMTP_USER || '').split('@').pop().toLowerCase();
+  if (isGmail && fromDomain && fromDomain !== 'gmail.com' && fromDomain !== userDomain) {
+    console.warn(`[Email] SMTP_FROM=${from} does not match the Gmail account (${process.env.SMTP_USER}). Google rewrites this sender and often spam-files it — set SMTP_FROM=${process.env.SMTP_USER}.`);
+  }
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT || '587'),
@@ -61,16 +80,30 @@ const processQueue = async () => {
       }
       const t = getTransporter();
       // HTTP API path (Brevo): port 443 is always open, unlike SMTP/587
-      // which this host blocks. Set BREVO_API_KEY to use it.
-      if (process.env.BREVO_API_KEY) {
+      // which some hosts block. Set BREVO_API_KEY to use it.
+      const brevoKey = (process.env.BREVO_API_KEY || '').trim();
+      if (brevoKey) {
+        const senderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_SENDER || process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+        const senderName = (process.env.BREVO_SENDER_NAME || 'JobHexa').trim();
+        if (!warnedBrevo) {
+          warnedBrevo = true;
+          if (!brevoKey.startsWith('xkeysib-')) {
+            console.warn('[Email] BREVO_API_KEY does not start with "xkeysib-". SMTP keys (xsmtpsib-…) are not valid for the HTTPS API and return 401 Key not found.');
+          }
+          if (!senderEmail) {
+            console.warn('[Email] No Brevo sender email. Set BREVO_SENDER_EMAIL to an address verified in Brevo → Senders & IPs → Senders.');
+          } else {
+            console.log(`[Email] Provider: Brevo API | sender: ${senderName} <${senderEmail}>`);
+          }
+        }
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 25000);
         try {
           const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
             method: 'POST',
-            headers: { 'api-key': process.env.BREVO_API_KEY, 'Content-Type': 'application/json', accept: 'application/json' },
+            headers: { 'api-key': brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
             body: JSON.stringify({
-              sender: { email: process.env.EMAIL_SENDER || process.env.SMTP_FROM || process.env.SMTP_USER, name: 'JobHexa' },
+              sender: { email: senderEmail, name: senderName },
               to: [{ email: to }],
               subject,
               htmlContent: html || undefined,
@@ -78,15 +111,34 @@ const processQueue = async () => {
             }),
             signal: ctrl.signal,
           });
-          if (!resp.ok) throw new Error(`Brevo rejected (${resp.status}): ${(await resp.text()).slice(0, 200)}`);
+          if (!resp.ok) {
+            const body = (await resp.text()).slice(0, 300);
+            const hint = resp.status === 401 || resp.status === 403
+              ? ' — BREVO_API_KEY must be the v3 API key (xkeysib-…), not the SMTP key (xsmtpsib-…)'
+              : resp.status === 400 && /sender/i.test(body)
+                ? ` — "${senderEmail}" is not a verified sender in Brevo (Senders & IPs → Senders)`
+                : '';
+            const err = new Error(`Brevo rejected (${resp.status}): ${body}${hint}`);
+            err.brevo = true;
+            throw err;
+          }
           const data = await resp.json();
-          console.log(`[Email Sent via Brevo] To: ${to}, Subject: ${subject}, ID: ${data.messageId}`);
+          console.log(`[Email Sent via Brevo] To: ${to}, Subject: ${subject}, ID: ${data.messageId} (sender: ${senderName} <${senderEmail}>)`);
           resolve({ messageId: data.messageId || `brevo-${Date.now()}` });
           continue;
+        } catch (brevoErr) {
+          console.error(`[Email] Brevo failed for ${to}: ${brevoErr.message}`);
+          // A bad key must never silence mail when SMTP credentials exist —
+          // fall through to the Gmail/SMTP path for this message.
+          if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+            reject(brevoErr);
+            continue;
+          }
+          console.log('[Email] Falling back to SMTP for this message');
         } finally { clearTimeout(timer); }
       }
       const info = await t.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        from: buildFromHeader(),
         to,
         subject,
         html,
