@@ -79,6 +79,12 @@ export const chatWithAI = async (message, context) => {
       } else {
         jobs = await Job.find(baseFilter).limit(10).select(proj);
       }
+      // The list below is a sample (max 10) to keep the prompt small — give the
+      // AI the REAL totals so "how many jobs?" answers correctly.
+      const totalJobs = await Job.countDocuments(baseFilter);
+      const totalByState = hitState
+        ? await Job.countDocuments({ ...baseFilter, state: new RegExp(hitState, 'i') })
+        : null;
       // For "what exam am I eligible" queries, filter to only eligible jobs using real eligibility engine
       if (isEligibleQuery && (lower.includes('what') || lower.includes('which') || !lower.includes('for')) && context?._id) {
         try {
@@ -100,7 +106,7 @@ export const chatWithAI = async (message, context) => {
           const vac = j.totalVacancies ?? 'Not specified';
           return `- [${j.title}](/jobs/${j.slug}) | ${j.department || 'Not specified'} | ${j.state || ''} | Vac: ${vac} | DL: ${dl} | Apply: ${j.applyLink || j.officialWebsite || 'see job page'}`;
         };
-        jobsContext = `\n\nJobHexa Database — these are the ONLY jobs you may mention. Copy titles, vacancy numbers, dates and links EXACTLY as written. NEVER invent jobs, vacancy counts, groups (e.g. Group X/A/B/C/V) or dates not in this list. Write "Not specified" instead of guessing. If the user asks for something not in this list, say it is not in the database and point to the official site.\n${jobs.map(row).join('\n')}\nOfficial sites: SSC https://ssc.gov.in, UPSC https://upsc.gov.in, IBPS https://ibps.in, RRB https://indianrailways.gov.in, TNPSC https://tnpsc.gov.in, DRDO https://drdo.gov.in.\nIMPORTANT: list every job as: N. [Title](/jobs/slug) | Vacancies | Deadline | [Details](/jobs/slug) [Apply](apply-url). "Details" and "Apply" MUST be markdown links — never plain text. Keep the title link exactly [Title](/jobs/slug) so users can click through.`;
+        jobsContext = `\n\nJobHexa Database — TOTAL ACTIVE JOBS IN THE SYSTEM: ${totalJobs}${hitState && totalByState != null ? ` (of which ${totalByState} are in ${hitState})` : ''}. The list below is only the ${jobs.length} most recent — when the user asks "how many jobs are there", answer with the TOTAL (${totalJobs}) and say the ${jobs.length} shown are the latest sample. Copy titles, vacancy numbers, dates and links EXACTLY as written. NEVER invent jobs, vacancy counts, groups (e.g. Group X/A/B/C/V) or dates not in this list. Write "Not specified" instead of guessing. If the user asks for something not in this list, say it is not in the database and point to the official site.\n${jobs.map(row).join('\n')}\nOfficial sites: SSC https://ssc.gov.in, UPSC https://upsc.gov.in, IBPS https://ibps.in, RRB https://indianrailways.gov.in, TNPSC https://tnpsc.gov.in, DRDO https://drdo.gov.in.\nIMPORTANT: list every job as: N. [Title](/jobs/slug) | Vacancies | Deadline | [Details](/jobs/slug) [Apply](apply-url). "Details" and "Apply" MUST be markdown links — never plain text. Keep the title link exactly [Title](/jobs/slug) so users can click through.`;
         if (isEligibleQuery && jobs.length < 10) {
           jobsContext += `\nNOTE: This list is already filtered to only jobs you are eligible for based on your profile. Say you are eligible for these ${jobs.length} exams.`;
         }
