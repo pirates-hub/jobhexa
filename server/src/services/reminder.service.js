@@ -245,19 +245,26 @@ export const startReminderCron = (opts = {}) => {
 // Surface the mail reason in Render logs at every boot: SMTP misconfigured,
 // Gmail rejecting the app password, or all-good. No more silent no-mail days.
 async function verifySmtpOnBoot() {
-  if (process.env.BREVO_API_KEY) {
-    console.log('[Email] Brevo HTTP API mode — SMTP ports not needed');
+  const hasBrevo = Boolean((process.env.BREVO_API_KEY || '').trim());
+  const hasSmtp = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  const prefer = (process.env.EMAIL_PROVIDER || '').toLowerCase() === 'brevo' ? 'brevo' : 'smtp';
+
+  if (!hasSmtp && !hasBrevo) {
+    console.error('[Email] No mail provider configured (SMTP_USER/SMTP_PASS or BREVO_API_KEY) — mails are mocked, nothing is really sent');
     return;
   }
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.error('[Email] SMTP NOT configured (SMTP_USER/SMTP_PASS missing) — mails will be mocked/skipped, nothing is really sent');
+  if (prefer === 'brevo' && hasBrevo) {
+    console.log('[Email] Primary: Brevo HTTP API (EMAIL_PROVIDER=brevo)');
+  }
+  if (!hasSmtp) {
+    console.log('[Email] SMTP not configured — sending through Brevo HTTP API only');
     return;
   }
   try {
     const { getTransporter } = await import('../config/nodemailer.js');
     await getTransporter().verify();
-    console.log(`[Email] SMTP ready via ${process.env.SMTP_HOST || 'smtp.gmail.com'} as ${process.env.SMTP_USER}`);
+    console.log(`[Email] SMTP ready via ${process.env.SMTP_HOST || 'smtp.gmail.com'} as ${process.env.SMTP_USER}${hasBrevo ? ' (Brevo fallback available)' : ''}`);
   } catch (e) {
-    console.error(`[Email] SMTP FAILED — no mail can be sent until fixed: ${e.message}`);
+    console.error(`[Email] SMTP login FAILED: ${e.message}${hasBrevo ? ' — each send will fall back to Brevo' : ' — no mail can be sent until fixed'}`);
   }
 }
