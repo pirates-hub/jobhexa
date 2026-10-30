@@ -9,6 +9,9 @@ let transporter = null;
 let emailQueue = [];
 let isProcessing = false;
 let warnedBrevo = false;
+// Set when SMTP fails, so the rest of the queue goes straight to Brevo for
+// 10 minutes instead of paying a 20s connect timeout per message.
+let smtpDisabledUntil = 0;
 
 // Sender header: always show "JobHexa" in the inbox, not the raw Gmail name.
 // Gmail allows a display name on the authenticated account, so a plain
@@ -66,7 +69,11 @@ const processQueue = async () => {
     const { to, subject, html, text, resolve, reject } = item;
     const attempts = (item.attempts || 0) + 1;
     try {
-      if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      const hasSmtp = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+      const brevoKey = (process.env.BREVO_API_KEY || '').trim();
+      const hasBrevo = Boolean(brevoKey);
+
+      if (!hasSmtp && !hasBrevo) {
         console.log(`[Email Mock] To: ${to}, Subject: ${subject}`);
         resolve({ messageId: 'mock-' + Date.now() });
         continue;
@@ -78,74 +85,97 @@ const processQueue = async () => {
         resolve({ messageId: 'skipped-fake-domain' });
         continue;
       }
-      const t = getTransporter();
-      // HTTP API path (Brevo): port 443 is always open, unlike SMTP/587
-      // which some hosts block. Set BREVO_API_KEY to use it.
-      const brevoKey = (process.env.BREVO_API_KEY || '').trim();
-      if (brevoKey) {
-        const senderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_SENDER || process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
-        const senderName = (process.env.BREVO_SENDER_NAME || 'JobHexa').trim();
-        if (!warnedBrevo) {
-          warnedBrevo = true;
-          if (!brevoKey.startsWith('xkeysib-')) {
-            console.warn('[Email] BREVO_API_KEY does not start with "xkeysib-". SMTP keys (xsmtpsib-…) are not valid for the HTTPS API and return 401 Key not found.');
-          }
-          if (!senderEmail) {
-            console.warn('[Email] No Brevo sender email. Set BREVO_SENDER_EMAIL to an address verified in Brevo → Senders & IPs → Senders.');
-          } else {
-            console.log(`[Email] Provider: Brevo API | sender: ${senderName} <${senderEmail}>`);
-          }
+
+      // Provider order. SMTP first by default: it sends as the Gmail account
+      // itself (SPF/DKIM aligned) and reaches the inbox, while Brevo's shared
+      // relay is often spam-foldered. Override with EMAIL_PROVIDER=smtp|brevo.
+      // A provider that just failed is skipped for 10 minutes so a blocked
+      // port doesn't add a 20s timeout to every message in the queue.
+      const prefer = (process.env.EMAIL_PROVIDER || '').toLowerCase();
+      const order = prefer === 'brevo' ? ['brevo', 'smtp'] : ['smtp', 'brevo'];
+      const smtpUsable = hasSmtp && Date.now() > smtpDisabledUntil;
+
+      if (!warnedBrevo) {
+        warnedBrevo = true;
+        console.log(`[Email] Provider: ${smtpUsable ? 'SMTP (Gmail)' : 'Brevo API'} first${smtpUsable && hasBrevo ? ', Brevo fallback' : ''}`);
+        if (hasSmtp) console.log(`[Email] From: ${buildFromHeader()}`);
+        if (hasBrevo && !brevoKey.startsWith('xkeysib-')) {
+          console.warn('[Email] BREVO_API_KEY does not start with "xkeysib-". SMTP keys (xsmtpsib-…) are not valid for the HTTPS API and return 401 Key not found.');
         }
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 25000);
-        try {
-          const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
-            method: 'POST',
-            headers: { 'api-key': brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
-            body: JSON.stringify({
-              sender: { email: senderEmail, name: senderName },
-              to: [{ email: to }],
-              subject,
-              htmlContent: html || undefined,
-              textContent: text || undefined,
-            }),
-            signal: ctrl.signal,
-          });
-          if (!resp.ok) {
-            const body = (await resp.text()).slice(0, 300);
-            const hint = resp.status === 401 || resp.status === 403
-              ? ' — BREVO_API_KEY must be the v3 API key (xkeysib-…), not the SMTP key (xsmtpsib-…)'
-              : resp.status === 400 && /sender/i.test(body)
-                ? ` — "${senderEmail}" is not a verified sender in Brevo (Senders & IPs → Senders)`
-                : '';
-            const err = new Error(`Brevo rejected (${resp.status}): ${body}${hint}`);
-            err.brevo = true;
-            throw err;
-          }
-          const data = await resp.json();
-          console.log(`[Email Sent via Brevo] To: ${to}, Subject: ${subject}, ID: ${data.messageId} (sender: ${senderName} <${senderEmail}>)`);
-          resolve({ messageId: data.messageId || `brevo-${Date.now()}` });
-          continue;
-        } catch (brevoErr) {
-          console.error(`[Email] Brevo failed for ${to}: ${brevoErr.message}`);
-          // A bad key must never silence mail when SMTP credentials exist —
-          // fall through to the Gmail/SMTP path for this message.
-          if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-            reject(brevoErr);
-            continue;
-          }
-          console.log('[Email] Falling back to SMTP for this message');
-        } finally { clearTimeout(timer); }
       }
-      const info = await t.sendMail({
-        from: buildFromHeader(),
-        to,
-        subject,
-        html,
-        text,
-      });
-      console.log(`[Email Sent] To: ${to}, Subject: ${subject}, ID: ${info.messageId}`);
-      resolve(info);
+
+      let delivered = false;
+      let lastErr = null;
+
+      for (const provider of order) {
+        if (provider === 'smtp' && !smtpUsable) continue;
+        if (provider === 'brevo' && !hasBrevo) continue;
+
+        try {
+          if (provider === 'smtp') {
+            const t = getTransporter();
+            const info = await t.sendMail({
+              from: buildFromHeader(),
+              to,
+              subject,
+              html,
+              text,
+            });
+            console.log(`[Email Sent via SMTP] To: ${to}, Subject: ${subject}, ID: ${info.messageId}`);
+            resolve(info);
+          } else {
+            const senderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_SENDER || process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+            const senderName = (process.env.BREVO_SENDER_NAME || 'JobHexa').trim();
+            if (!senderEmail) {
+              throw new Error('No Brevo sender email. Set BREVO_SENDER_EMAIL to an address verified in Brevo.');
+            }
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 25000);
+            let data;
+            try {
+              const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+                method: 'POST',
+                headers: { 'api-key': brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
+                body: JSON.stringify({
+                  sender: { email: senderEmail, name: senderName },
+                  to: [{ email: to }],
+                  subject,
+                  htmlContent: html || undefined,
+                  textContent: text || undefined,
+                }),
+                signal: ctrl.signal,
+              });
+              if (!resp.ok) {
+                const body = (await resp.text()).slice(0, 300);
+                const hint = resp.status === 401 || resp.status === 403
+                  ? ' — BREVO_API_KEY must be the v3 API key (xkeysib-…), not the SMTP key (xsmtpsib-…)'
+                  : resp.status === 400 && /sender/i.test(body)
+                    ? ` — "${senderEmail}" is not a verified sender in Brevo (Senders & IPs → Senders)`
+                    : '';
+                throw new Error(`Brevo rejected (${resp.status}): ${body}${hint}`);
+              }
+              data = await resp.json();
+            } finally { clearTimeout(timer); }
+            console.log(`[Email Sent via Brevo] To: ${to}, Subject: ${subject}, ID: ${data.messageId} (sender: ${senderName} <${senderEmail}>)`);
+            resolve({ messageId: data.messageId || `brevo-${Date.now()}` });
+          }
+          delivered = true;
+          break;
+        } catch (providerErr) {
+          lastErr = providerErr;
+          if (provider === 'smtp') {
+            smtpDisabledUntil = Date.now() + 10 * 60 * 1000;
+            console.error(`[Email] SMTP failed for ${to}: ${providerErr.message}`);
+          } else {
+            console.error(`[Email] Brevo failed for ${to}: ${providerErr.message}`);
+          }
+          const nextProvider = provider === 'smtp' ? 'Brevo' : 'SMTP';
+          const canFallback = provider === 'smtp' ? hasBrevo : hasSmtp;
+          if (canFallback) console.log(`[Email] Falling back to ${nextProvider} for this message`);
+        }
+      }
+
+      if (!delivered) throw lastErr || new Error('All email providers failed');
     } catch (err) {
       console.error(`[Email Failed] To: ${to}, Attempt ${attempts}/${MAX_ATTEMPTS}, Error: ${err.message}`);
       // Retry transient failures with backoff, but give up after MAX_ATTEMPTS
