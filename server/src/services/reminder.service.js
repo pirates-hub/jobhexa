@@ -194,11 +194,22 @@ export const sendEligibleDigest = async () => {
       if (user.notificationPreferences?.email !== false && user.email && !mailLogged) {
         try {
           const { sendEmail } = await import('../config/nodemailer.js');
+          const { makeUnsubscribeToken } = await import('../utils/mailToken.js');
+          // Brevo's anti-spam policy requires a working opt-out on recurring
+          // mail. Without it the account was flagged and sending was paused.
+          const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(makeUnsubscribeToken(user._id))}`;
+          const footerHtml = `<hr style="margin:24px 0 12px;border:none;border-top:1px solid #e2e8f0">
+<p style="font-size:12px;color:#64748b;line-height:1.6">You received this because you registered for job alerts at <a href="${base}" style="color:#64748b">JobHexa</a>.<br>
+<a href="${unsubUrl}" style="color:#2563eb">Unsubscribe from these emails</a></p>`;
           await sendEmail({
             to: user.email,
             subject: `${title} — JobHexa`,
-            html: `<h2>${title}</h2><p>Hi ${user.name || ''}, based on your profile you can apply for:</p><ol>${htmlLines}</ol><p>Deadlines approach fast — apply early.</p>`,
-            text: `Hi ${user.name || ''}, you are eligible for:\n${textLines}`,
+            html: `<h2>${title}</h2><p>Hi ${user.name || ''}, based on your profile you can apply for:</p><ol>${htmlLines}</ol><p>Deadlines approach fast — apply early.</p>${footerHtml}`,
+            text: `Hi ${user.name || ''}, you are eligible for:\n${textLines}\n\nYou received this because you registered for job alerts at ${base}.\nUnsubscribe: ${unsubUrl}`,
+            headers: {
+              'List-Unsubscribe': `<${unsubUrl}>`,
+              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            },
           });
           await NotificationLog.updateOne(
             { user: user._id, job: matches[0].job._id, notificationType: logType },

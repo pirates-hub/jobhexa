@@ -180,7 +180,7 @@ const processQueue = async () => {
   isProcessing = true;
   while (emailQueue.length > 0) {
     const item = emailQueue.shift();
-    const { to, subject, html, text, resolve, reject } = item;
+    const { to, subject, html, text, headers, resolve, reject } = item;
     const attempts = (item.attempts || 0) + 1;
     try {
       const hasSmtp = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
@@ -274,7 +274,7 @@ const processQueue = async () => {
             recordAttempt('sendgrid', true, { messageId, to, subject });
             resolve({ messageId });
           } else if (provider === 'smtp') {
-            const info = await sendViaSmtp({ to, subject, html, text });
+            const info = await sendViaSmtp({ to, subject, html, text, headers });
             console.log(`[Email Sent via SMTP] To: ${to}, Subject: ${subject}, ID: ${info.messageId}`);
             recordAttempt('smtp', true, { messageId: info.messageId, to, subject });
             resolve(info);
@@ -297,6 +297,7 @@ const processQueue = async () => {
                   subject,
                   htmlContent: html || undefined,
                   textContent: text || undefined,
+                  ...(headers && Object.keys(headers).length ? { headers } : {}),
                 }),
                 signal: ctrl.signal,
               });
@@ -339,7 +340,7 @@ const processQueue = async () => {
       // Retry transient failures with backoff, but give up after MAX_ATTEMPTS
       const authFailure = err.message.includes('Invalid login') || err.message.includes('Authentication');
       if (!authFailure && attempts < MAX_ATTEMPTS) {
-        emailQueue.push({ to, subject, html, text, resolve, reject, attempts });
+        emailQueue.push({ to, subject, html, text, headers, resolve, reject, attempts });
         await new Promise(r => setTimeout(r, 2000 * attempts));
         continue;
       }
@@ -351,9 +352,9 @@ const processQueue = async () => {
   isProcessing = false;
 };
 
-export const sendEmail = async ({ to, subject, html, text }) => {
+export const sendEmail = async ({ to, subject, html, text, headers }) => {
   return new Promise((resolve, reject) => {
-    emailQueue.push({ to, subject, html, text, resolve, reject });
+    emailQueue.push({ to, subject, html, text, headers, resolve, reject });
     processQueue();
   });
 };

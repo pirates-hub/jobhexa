@@ -11,6 +11,7 @@ import { syncAggregatorJobs } from '../controllers/aggregator.controller.js';
 import pdfRoutes from './pdf.routes.js';
 import chatRoutes from './chat.routes.js';
 import notificationRoutes from './notification.routes.js';
+import unsubscribeRoutes from './unsubscribe.routes.js';
 
 const router = Router();
 
@@ -30,5 +31,7 @@ router.use('/admin', adminRoutes);
 router.use('/pdf', pdfRoutes);
 router.use('/chat', chatRoutes);
 router.use('/notifications', notificationRoutes);
+// Public, token-authenticated: linked from email footers, no session.
+router.use('/unsubscribe', unsubscribeRoutes);
 
 export default router;
