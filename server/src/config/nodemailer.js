@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import dns from 'node:dns';
+import net from 'node:net';
 import MailAttempt from '../models/MailAttempt.js';
 
 // Diagnostics: a failed insert must never affect delivery.
@@ -15,17 +16,29 @@ const recordAttempt = (provider, ok, { messageId, error, to, subject } = {}) => 
   }).catch(() => {});
 };
 
-// Render hosts have no IPv6 route, but smtp.gmail.com resolves IPv6-first,
-// producing `connect ENETUNREACH <ipv6>:587` on every send. Prefer IPv4.
+// nodemailer resolves with c-ares and then picks a RANDOM address from the
+// combined IPv4+IPv6 list (lib/shared/index.js), so dns.setDefaultResultOrder
+// has no effect and Render — which has no IPv6 route — kept dialling
+// `2404:...:587` and failing with ENETUNREACH before falling back to Brevo.
+// We therefore resolve IPv4 ourselves and hand nodemailer the literal address,
+// keeping the hostname as the TLS servername so SNI and cert checks still work.
 try { dns.setDefaultResultOrder('ipv4first'); } catch {}
 
 let transporter = null;
+let transporterPromise = null;
 let emailQueue = [];
 let isProcessing = false;
 let warnedBrevo = false;
 // Set when SMTP fails, so the rest of the queue goes straight to Brevo for
 // 10 minutes instead of paying a 20s connect timeout per message.
 let smtpDisabledUntil = 0;
+
+// Reset a cached transporter after a failure so the next attempt resolves DNS
+// again instead of pinning a dead address until the next deploy.
+const resetTransporter = () => {
+  transporter = null;
+  transporterPromise = null;
+};
 
 // Sender header: always show "JobHexa" in the inbox, not the raw Gmail name.
 // Gmail allows a display name on the authenticated account, so a plain
@@ -38,7 +51,19 @@ export const buildFromHeader = () => {
 };
 
 export const getTransporter = () => {
-  if (transporter) return transporter;
+  if (transporter) return Promise.resolve(transporter);
+  if (transporterPromise) return transporterPromise;
+  transporterPromise = createTransporter().then((t) => {
+    transporter = t;
+    return t;
+  }).catch((err) => {
+    transporterPromise = null;
+    throw err;
+  });
+  return transporterPromise;
+};
+
+const createTransporter = async () => {
   const isGmail = (process.env.SMTP_HOST || '').includes('gmail');
   // Gmail only signs mail for the authenticated account. A custom-domain From
   // (noreply@jobhexa.com) is rewritten by Google and lands in Spam — warn once.
@@ -48,8 +73,24 @@ export const getTransporter = () => {
   if (isGmail && fromDomain && fromDomain !== 'gmail.com' && fromDomain !== userDomain) {
     console.warn(`[Email] SMTP_FROM=${from} does not match the Gmail account (${process.env.SMTP_USER}). Google rewrites this sender and often spam-files it — set SMTP_FROM=${process.env.SMTP_USER}.`);
   }
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+
+  const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+  let connectHost = host;
+  if (!net.isIP(host)) {
+    try {
+      const ipv4 = await dns.promises.lookup(host, { family: 4 });
+      connectHost = ipv4.address;
+      console.log(`[Email] ${host} -> ${connectHost} (IPv4, avoids Render's missing IPv6 route)`);
+    } catch (err) {
+      console.warn(`[Email] IPv4 lookup failed for ${host}: ${err.message} — connecting by hostname`);
+    }
+  }
+  const servername = net.isIP(connectHost) ? host : undefined;
+
+  return nodemailer.createTransport({
+    host: connectHost,
+    servername,
+    tls: servername ? { servername } : undefined,
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: false,
     auth: {
@@ -129,7 +170,7 @@ const processQueue = async () => {
 
         try {
           if (provider === 'smtp') {
-            const t = getTransporter();
+            const t = await getTransporter();
             const info = await t.sendMail({
               from: buildFromHeader(),
               to,
@@ -184,6 +225,7 @@ const processQueue = async () => {
           recordAttempt(provider, false, { error: providerErr.message, to, subject });
           if (provider === 'smtp') {
             smtpDisabledUntil = Date.now() + 10 * 60 * 1000;
+            resetTransporter();
             console.error(`[Email] SMTP failed for ${to}: ${providerErr.message}`);
           } else {
             console.error(`[Email] Brevo failed for ${to}: ${providerErr.message}`);

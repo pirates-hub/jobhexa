@@ -262,7 +262,8 @@ async function verifySmtpOnBoot() {
   }
   try {
     const { getTransporter } = await import('../config/nodemailer.js');
-    await getTransporter().verify();
+    const transporter = await getTransporter();
+    await transporter.verify();
     console.log(`[Email] SMTP ready via ${process.env.SMTP_HOST || 'smtp.gmail.com'} as ${process.env.SMTP_USER}${hasBrevo ? ' (Brevo fallback available)' : ''}`);
   } catch (e) {
     console.error(`[Email] SMTP login FAILED: ${e.message}${hasBrevo ? ' — each send will fall back to Brevo' : ' — no mail can be sent until fixed'}`);
