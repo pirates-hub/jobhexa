@@ -26,19 +26,40 @@ try { dns.setDefaultResultOrder('ipv4first'); } catch {}
 
 let transporter = null;
 let transporterPromise = null;
+let transporterPort = 0;
+let preferredPort = 0;
 let emailQueue = [];
 let isProcessing = false;
 let warnedBrevo = false;
 // Set when SMTP fails, so the rest of the queue goes straight to Brevo for
-// 10 minutes instead of paying a 20s connect timeout per message.
+// 10 minutes instead of paying a connect timeout per message.
 let smtpDisabledUntil = 0;
 
-// Reset a cached transporter after a failure so the next attempt resolves DNS
-// again instead of pinning a dead address until the next deploy.
+// Render blocks outbound SMTP on some ports: 587 now resolves to IPv4 but the
+// TCP connect times out. 465 (implicit TLS) is commonly open. Try both before
+// handing the message to Brevo.
+const smtpPorts = () => {
+  const configured = parseInt(process.env.SMTP_PORT || '587', 10) || 587;
+  const ports = [configured];
+  if (process.env.SMTP_PORT_FALLBACK !== 'false') {
+    const alt = configured === 465 ? 587 : 465;
+    if (!ports.includes(alt)) ports.push(alt);
+  }
+  // Whatever worked last goes first, so later mails don't re-test a dead port.
+  return preferredPort ? [preferredPort, ...ports.filter((p) => p !== preferredPort)] : ports;
+};
+
+// Reset after a failure so the next attempt re-resolves DNS and re-tests ports
+// instead of pinning a dead address until the next deploy.
 const resetTransporter = () => {
   transporter = null;
   transporterPromise = null;
+  transporterPort = 0;
 };
+
+// A protocol-level rejection (bad password, refused recipient) fails on every
+// port, so it is not worth opening a second connection to find that out.
+const isConnectionError = (err) => !(err && (err.responseCode || err.code === 'EAUTH' || err.code === 'EENVELOPE'));
 
 // Sender header: always show "JobHexa" in the inbox, not the raw Gmail name.
 // Gmail allows a display name on the authenticated account, so a plain
@@ -50,20 +71,58 @@ export const buildFromHeader = () => {
   return `"JobHexa" <${address}>`;
 };
 
-export const getTransporter = () => {
-  if (transporter) return Promise.resolve(transporter);
-  if (transporterPromise) return transporterPromise;
-  transporterPromise = createTransporter().then((t) => {
+export const getTransporter = (port) => {
+  const target = port || parseInt(process.env.SMTP_PORT || '587', 10) || 587;
+  if (transporter && transporterPort === target) return Promise.resolve(transporter);
+  if (transporterPromise && transporterPort === target) return transporterPromise;
+  transporter = null;
+  transporterPort = target;
+  transporterPromise = createTransporter(target).then((t) => {
     transporter = t;
     return t;
   }).catch((err) => {
-    transporterPromise = null;
+    if (transporterPort === target) transporterPromise = null;
     throw err;
   });
   return transporterPromise;
 };
 
-const createTransporter = async () => {
+export const sendViaSmtp = async (message) => {
+  let lastErr;
+  for (const port of smtpPorts()) {
+    try {
+      const t = await getTransporter(port);
+      const info = await t.sendMail({ from: buildFromHeader(), ...message });
+      preferredPort = port;
+      return info;
+    } catch (err) {
+      lastErr = err;
+      resetTransporter();
+      if (!isConnectionError(err)) throw err;
+      console.error(`[Email] SMTP port ${port} failed: ${err.message}`);
+    }
+  }
+  throw lastErr || new Error('SMTP send failed');
+};
+
+export const verifySmtp = async () => {
+  let lastErr;
+  for (const port of smtpPorts()) {
+    try {
+      const t = await getTransporter(port);
+      await t.verify();
+      preferredPort = port;
+      return port;
+    } catch (err) {
+      lastErr = err;
+      resetTransporter();
+      if (!isConnectionError(err)) throw err;
+    }
+  }
+  throw lastErr || new Error('SMTP verify failed');
+};
+
+const createTransporter = async (port) => {
   const isGmail = (process.env.SMTP_HOST || '').includes('gmail');
   // Gmail only signs mail for the authenticated account. A custom-domain From
   // (noreply@jobhexa.com) is rewritten by Google and lands in Spam — warn once.
@@ -91,15 +150,16 @@ const createTransporter = async () => {
     host: connectHost,
     servername,
     tls: servername ? { servername } : undefined,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: false,
+    port,
+    // 465 is implicit TLS; 587 starts plaintext and upgrades via STARTTLS.
+    secure: port === 465,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
     // Timeouts: without these a blackholed SMTP connection hangs forever,
     // wedging the queue so every later mail silently never sends.
-    connectionTimeout: 20000,
+    connectionTimeout: 15000,
     greetingTimeout: 15000,
     socketTimeout: 30000,
     pool: true,
@@ -108,7 +168,6 @@ const createTransporter = async () => {
     rateLimit: isGmail ? 5 : 10,
     rateDelta: 1000,
   });
-  return transporter;
 };
 
 // Proper queue for every user - handles Gmail 500/day limit via batching + retry
@@ -170,14 +229,7 @@ const processQueue = async () => {
 
         try {
           if (provider === 'smtp') {
-            const t = await getTransporter();
-            const info = await t.sendMail({
-              from: buildFromHeader(),
-              to,
-              subject,
-              html,
-              text,
-            });
+            const info = await sendViaSmtp({ to, subject, html, text });
             console.log(`[Email Sent via SMTP] To: ${to}, Subject: ${subject}, ID: ${info.messageId}`);
             recordAttempt('smtp', true, { messageId: info.messageId, to, subject });
             resolve(info);
