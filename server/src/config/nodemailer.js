@@ -186,8 +186,10 @@ const processQueue = async () => {
       const hasSmtp = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
       const brevoKey = (process.env.BREVO_API_KEY || '').trim();
       const hasBrevo = Boolean(brevoKey);
+      const sendgridKey = (process.env.SENDGRID_API_KEY || '').trim();
+      const hasSendgrid = Boolean(sendgridKey);
 
-      if (!hasSmtp && !hasBrevo) {
+      if (!hasSmtp && !hasBrevo && !hasSendgrid) {
         const messageId = 'mock-' + Date.now();
         console.log(`[Email Mock] To: ${to}, Subject: ${subject}`);
         recordAttempt('mock', true, { messageId, to, subject });
@@ -202,19 +204,23 @@ const processQueue = async () => {
         continue;
       }
 
-      // Provider order. SMTP first by default: it sends as the Gmail account
-      // itself (SPF/DKIM aligned) and reaches the inbox, while Brevo's shared
-      // relay is often spam-foldered. Override with EMAIL_PROVIDER=smtp|brevo.
-      // A provider that just failed is skipped for 10 minutes so a blocked
-      // port doesn't add a 20s timeout to every message in the queue.
+      // Provider order. HTTPS APIs (port 443) come first because Render blocks
+      // outbound SMTP: 587 and 465 both time out, so SMTP can never deliver
+      // there. Brevo is last — its account was paused by compliance on
+      // 28 Oct and it accepts mail without sending it.
+      // Override with EMAIL_PROVIDER=sendgrid|smtp|brevo.
       const prefer = (process.env.EMAIL_PROVIDER || '').toLowerCase();
-      const order = prefer === 'brevo' ? ['brevo', 'smtp'] : ['smtp', 'brevo'];
+      const defaults = ['sendgrid', 'smtp', 'brevo'];
+      const order = prefer ? [prefer, ...defaults.filter((p) => p !== prefer)] : defaults;
       const smtpUsable = hasSmtp && Date.now() > smtpDisabledUntil;
 
       if (!warnedBrevo) {
         warnedBrevo = true;
-        console.log(`[Email] Provider: ${smtpUsable ? 'SMTP (Gmail)' : 'Brevo API'} first${smtpUsable && hasBrevo ? ', Brevo fallback' : ''}`);
-        if (hasSmtp) console.log(`[Email] From: ${buildFromHeader()}`);
+        const active = order.filter((p) =>
+          (p === 'smtp' && smtpUsable) || (p === 'brevo' && hasBrevo) || (p === 'sendgrid' && hasSendgrid)
+        );
+        console.log(`[Email] Providers in order: ${active.join(' -> ') || '(none configured)'}`);
+        console.log(`[Email] From: ${buildFromHeader()}`);
         if (hasBrevo && !brevoKey.startsWith('xkeysib-')) {
           console.warn('[Email] BREVO_API_KEY does not start with "xkeysib-". SMTP keys (xsmtpsib-…) are not valid for the HTTPS API and return 401 Key not found.');
         }
@@ -226,9 +232,48 @@ const processQueue = async () => {
       for (const provider of order) {
         if (provider === 'smtp' && !smtpUsable) continue;
         if (provider === 'brevo' && !hasBrevo) continue;
+        if (provider === 'sendgrid' && !hasSendgrid) continue;
 
         try {
-          if (provider === 'smtp') {
+          if (provider === 'sendgrid') {
+            const senderEmail = (process.env.SENDGRID_FROM || process.env.EMAIL_SENDER || process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+            const senderName = (process.env.SENDGRID_SENDER_NAME || 'JobHexa').trim();
+            if (!senderEmail) {
+              throw new Error('No SendGrid sender email. Set SENDGRID_FROM to a verified Single Sender address.');
+            }
+            const content = [];
+            if (text) content.push({ type: 'text/plain', value: text });
+            if (html) content.push({ type: 'text/html', value: html });
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 25000);
+            let messageId;
+            try {
+              const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${sendgridKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  personalizations: [{ to: [{ email: to }] }],
+                  from: { email: senderEmail, name: senderName },
+                  subject,
+                  content: content.length ? content : [{ type: 'text/plain', value: subject }],
+                }),
+                signal: ctrl.signal,
+              });
+              if (!resp.ok) {
+                const body = (await resp.text()).slice(0, 300);
+                const hint = resp.status === 401
+                  ? ' — SENDGRID_API_KEY is invalid or revoked'
+                  : resp.status === 403 && /sender/i.test(body)
+                    ? ` — "${senderEmail}" is not a verified Single Sender in SendGrid`
+                    : '';
+                throw new Error(`SendGrid rejected (${resp.status}): ${body}${hint}`);
+              }
+              messageId = resp.headers.get('x-message-id') || `sendgrid-${Date.now()}`;
+            } finally { clearTimeout(timer); }
+            console.log(`[Email Sent via SendGrid] To: ${to}, Subject: ${subject}, ID: ${messageId} (sender: ${senderName} <${senderEmail}>)`);
+            recordAttempt('sendgrid', true, { messageId, to, subject });
+            resolve({ messageId });
+          } else if (provider === 'smtp') {
             const info = await sendViaSmtp({ to, subject, html, text });
             console.log(`[Email Sent via SMTP] To: ${to}, Subject: ${subject}, ID: ${info.messageId}`);
             recordAttempt('smtp', true, { messageId: info.messageId, to, subject });

@@ -247,24 +247,31 @@ export const startReminderCron = (opts = {}) => {
 async function verifySmtpOnBoot() {
   const hasBrevo = Boolean((process.env.BREVO_API_KEY || '').trim());
   const hasSmtp = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
-  const prefer = (process.env.EMAIL_PROVIDER || '').toLowerCase() === 'brevo' ? 'brevo' : 'smtp';
+  const hasSendgrid = Boolean((process.env.SENDGRID_API_KEY || '').trim());
+  const prefer = (process.env.EMAIL_PROVIDER || '').toLowerCase();
 
-  if (!hasSmtp && !hasBrevo) {
-    console.error('[Email] No mail provider configured (SMTP_USER/SMTP_PASS or BREVO_API_KEY) — mails are mocked, nothing is really sent');
+  const chain = [prefer, ...['sendgrid', 'smtp', 'brevo'].filter((p) => p !== prefer)]
+    .filter((p) => (p === 'sendgrid' && hasSendgrid) || (p === 'brevo' && hasBrevo) || (p === 'smtp' && hasSmtp));
+
+  if (!chain.length) {
+    console.error('[Email] No mail provider configured (SENDGRID_API_KEY, SMTP_USER/SMTP_PASS or BREVO_API_KEY) — mails are mocked, nothing is really sent');
     return;
   }
-  if (prefer === 'brevo' && hasBrevo) {
-    console.log('[Email] Primary: Brevo HTTP API (EMAIL_PROVIDER=brevo)');
-  }
+  console.log(`[Email] Provider chain: ${chain.join(' -> ')}`);
+
   if (!hasSmtp) {
-    console.log('[Email] SMTP not configured — sending through Brevo HTTP API only');
+    console.log('[Email] SMTP not configured — sending through HTTPS APIs only');
+    return;
+  }
+  if (chain[0] !== 'smtp') {
+    console.log('[Email] SMTP is a fallback here; skipping the boot login test so a blocked port does not delay startup');
     return;
   }
   try {
     const { verifySmtp } = await import('../config/nodemailer.js');
     const port = await verifySmtp();
-    console.log(`[Email] SMTP ready via ${process.env.SMTP_HOST || 'smtp.gmail.com'}:${port} as ${process.env.SMTP_USER}${hasBrevo ? ' (Brevo fallback available)' : ''}`);
+    console.log(`[Email] SMTP ready via ${process.env.SMTP_HOST || 'smtp.gmail.com'}:${port} as ${process.env.SMTP_USER}`);
   } catch (e) {
-    console.error(`[Email] SMTP login FAILED: ${e.message}${hasBrevo ? ' — each send will fall back to Brevo' : ' — no mail can be sent until fixed'}`);
+    console.error(`[Email] SMTP login FAILED: ${e.message} — the next provider in the chain will be tried per message`);
   }
 }
