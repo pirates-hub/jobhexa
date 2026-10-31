@@ -1,5 +1,19 @@
 import nodemailer from 'nodemailer';
 import dns from 'node:dns';
+import MailAttempt from '../models/MailAttempt.js';
+
+// Diagnostics: a failed insert must never affect delivery.
+const recordAttempt = (provider, ok, { messageId, error, to, subject } = {}) => {
+  const toDomain = String(to || '').split('@').pop().slice(0, 60) || undefined;
+  MailAttempt.create({
+    provider,
+    ok,
+    messageId: messageId ? String(messageId).slice(0, 200) : undefined,
+    error: ok ? undefined : String(error || '').replace(/[\w.+-]+@[\w.-]+/g, '<address>').slice(0, 200),
+    toDomain,
+    subject: String(subject || '').slice(0, 160) || undefined,
+  }).catch(() => {});
+};
 
 // Render hosts have no IPv6 route, but smtp.gmail.com resolves IPv6-first,
 // producing `connect ENETUNREACH <ipv6>:587` on every send. Prefer IPv4.
@@ -74,8 +88,10 @@ const processQueue = async () => {
       const hasBrevo = Boolean(brevoKey);
 
       if (!hasSmtp && !hasBrevo) {
+        const messageId = 'mock-' + Date.now();
         console.log(`[Email Mock] To: ${to}, Subject: ${subject}`);
-        resolve({ messageId: 'mock-' + Date.now() });
+        recordAttempt('mock', true, { messageId, to, subject });
+        resolve({ messageId });
         continue;
       }
       // Validate recipient is real email (not @jobhexa.com fake)
@@ -122,6 +138,7 @@ const processQueue = async () => {
               text,
             });
             console.log(`[Email Sent via SMTP] To: ${to}, Subject: ${subject}, ID: ${info.messageId}`);
+            recordAttempt('smtp', true, { messageId: info.messageId, to, subject });
             resolve(info);
           } else {
             const senderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_SENDER || process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
@@ -157,12 +174,14 @@ const processQueue = async () => {
               data = await resp.json();
             } finally { clearTimeout(timer); }
             console.log(`[Email Sent via Brevo] To: ${to}, Subject: ${subject}, ID: ${data.messageId} (sender: ${senderName} <${senderEmail}>)`);
+            recordAttempt('brevo', true, { messageId: data.messageId, to, subject });
             resolve({ messageId: data.messageId || `brevo-${Date.now()}` });
           }
           delivered = true;
           break;
         } catch (providerErr) {
           lastErr = providerErr;
+          recordAttempt(provider, false, { error: providerErr.message, to, subject });
           if (provider === 'smtp') {
             smtpDisabledUntil = Date.now() + 10 * 60 * 1000;
             console.error(`[Email] SMTP failed for ${to}: ${providerErr.message}`);
