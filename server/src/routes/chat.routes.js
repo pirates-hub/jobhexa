@@ -42,6 +42,8 @@ router.post('/study-plan', protect, async (req, res) => {
         { upsert: true }
       );
     } catch (e) { console.error('Save plan failed', e.message); }
+    // Give every day a real topic page so plan topics are always clickable
+    try { await (await import('../services/planTopics.service.js')).ensurePlanTopics(planArray); } catch (e) { console.error('ensurePlanTopics failed', e.message); }
     res.json({ success: true, data: { plan: planArray } });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -50,6 +52,8 @@ router.get('/study-plan', protect, async (req, res) => {
     const StudyPlan = (await import('../models/StudyPlan.js')).default;
     const plan = await StudyPlan.findOne({ user: req.user._id, isActive: true }).sort({ updatedAt: -1 });
     if (!plan) return res.json({ success: true, data: { plan: null } });
+    // Self-heal: plans saved before topic pages existed get theirs created now
+    try { await (await import('../services/planTopics.service.js')).ensurePlanTopics(plan.plan); } catch (e) { console.error('ensurePlanTopics failed', e.message); }
     res.json({ success: true, data: { plan } });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });

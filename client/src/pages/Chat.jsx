@@ -6,7 +6,7 @@ import api from '../services/api';
 import jobService from '../services/jobService';
 import JobCard from '../components/jobs/JobCard';
 import Badge from '../components/common/Badge';
-import TopicLink from '../components/prep/TopicLink';
+import TopicLink, { refreshTopicIndex } from '../components/prep/TopicLink';
 import { formatDate, formatCurrency, daysUntil, getDeadlineColor, getJobStatusBadge } from '../utils/helpers';
 
 function renderWithLinks(text, jobIndex = {}) {
@@ -667,6 +667,7 @@ function Chat() {
           }
           days = Math.min(Math.max(days, 1), 90);
           const res = await api.post('/chat/study-plan', { exam, days });
+          refreshTopicIndex();
           const planData = res.data?.data?.plan;
           const planArray = Array.isArray(planData) ? planData : planData?.plan || [];
           if (!planArray.length) {

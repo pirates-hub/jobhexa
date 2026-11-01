@@ -193,9 +193,12 @@ const seedJobs = async () => {
   }
 };
 
-const seed = async () => {
+// Runs every seeder. Each one skips documents that already exist, so this is
+// idempotent and safe to run on every boot as a backfill.
+export const runSeed = async () => {
   console.log('Starting seed...\n');
-  await connectDB();
+  // When imported by the server, mongoose is already connected (or connecting).
+  if (mongoose.connection.readyState === 0) await connectDB();
 
   console.log('Seeding reference data:');
   await seedCollection(State, states, 'States');
@@ -214,10 +217,14 @@ const seed = async () => {
   await seedJobs();
 
   console.log('\nSeed completed!');
-  process.exit(0);
 };
 
-seed().catch((err) => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+// CLI entry: `npm run seed` (node src/seeds/seed.js). When the server imports
+// this file it only gets runSeed — no connect, no process.exit.
+const invokedDirectly = (process.argv[1] || '').replace(/\\/g, '/').endsWith('seeds/seed.js');
+if (invokedDirectly) {
+  runSeed().then(() => process.exit(0)).catch((err) => {
+    console.error('Seed failed:', err);
+    process.exit(1);
+  });
+}

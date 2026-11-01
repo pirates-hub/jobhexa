@@ -71,18 +71,22 @@ export function resolvePlanLink(text, index) {
   return { to: '/preparation', kind: 'fallback' };
 }
 
-let indexPromise = null;
+let cache = { at: 0, promise: null };
 function loadIndex() {
-  if (!indexPromise) {
-    indexPromise = Promise.all([
+  const now = Date.now();
+  if (!cache.promise || now - cache.at > 60000) {
+    cache.at = now;
+    cache.promise = Promise.all([
       api.get('/prep/topics/index').then((r) => r.data?.data?.topics || []).catch(() => []),
       api.get('/prep/subjects').then((r) => r.data?.data?.subjects || []).catch(() => []),
     ])
       .then(([topics, subjects]) => ({ topics, subjects }))
       .catch(() => ({ topics: [], subjects: [] }));
   }
-  return indexPromise;
+  return cache.promise;
 }
+// Call after new topics are created server-side so links resolve immediately.
+export function refreshTopicIndex() { cache = { at: 0, promise: null }; }
 
 export function usePrepIndex() {
   const [index, setIndex] = useState(null);

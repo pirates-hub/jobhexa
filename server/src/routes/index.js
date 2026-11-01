@@ -1,4 +1,7 @@
 import { Router } from 'express';
+// Idempotent reference-data backfill on boot (topics, mock tests, subjects).
+// Keeps prod complete without a manual seed step. See seeds/autoSeed.js.
+import '../seeds/autoSeed.js';
 import authRoutes from './auth.routes.js';
 import userRoutes from './user.routes.js';
 import jobRoutes from './job.routes.js';
