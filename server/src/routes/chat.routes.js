@@ -4,9 +4,10 @@ import { chatWithAI, summarizePdf, generateStudyPlan, generateInterviewQuestions
 const router = Router();
 router.post('/', protect, async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, history } = req.body;
     if (!message) return res.status(400).json({ success: false, message: 'Message required' });
-    const result = await chatWithAI(message, req.user);
+    // Last few turns so follow-ups ("and its last date?") keep their subject.
+    const result = await chatWithAI(message, req.user, Array.isArray(history) ? history : []);
     res.json({ success: true, data: result });
   } catch (e) {
     if (String(e.message || '').includes('429')) {

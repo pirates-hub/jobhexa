@@ -57,58 +57,209 @@ export const summarizePdf = async (pdfText) => {
   }
 };
 
-export const chatWithAI = async (message, context) => {
+// ---------------------------------------------------------------------------
+// Chat grounding
+// ---------------------------------------------------------------------------
+// The job database is evidence, not the answer. It used to be injected into
+// every prompt with an instruction to print every row, so even "what is the
+// capital of India?" came back as the same 10 listings. The database block is
+// now added only for job-related questions, and the prompt no longer mandates
+// the listing format unless the user asked for jobs.
+
+const INDIAN_STATES = [
+  'andhra pradesh', 'arunachal pradesh', 'assam', 'bihar', 'chhattisgarh', 'goa',
+  'gujarat', 'haryana', 'himachal pradesh', 'jharkhand', 'karnataka', 'kerala',
+  'madhya pradesh', 'maharashtra', 'manipur', 'meghalaya', 'mizoram', 'nagaland',
+  'odisha', 'punjab', 'rajasthan', 'sikkim', 'tamil nadu', 'telangana', 'tripura',
+  'uttar pradesh', 'uttarakhand', 'west bengal', 'delhi', 'jammu and kashmir',
+  'ladakh', 'puducherry', 'chandigarh', 'andaman and nicobar islands',
+  'dadra and nagar haveli', 'daman and diu', 'lakshadweep',
+].sort((a, b) => b.length - a.length);
+
+// Exam shorthand the database actually uses in titles. Matching this lets
+// "SSC CGL details" retrieve the CGL row instead of any 10 random jobs.
+const EXAM_RX = /\b(ssc(?:\s+(?:cgl|chsl|mts|gd|je|stenographer))?|upsc(?:\s+(?:cse|ias|ifs))?|ibps(?:\s+(?:po|clerk|so))?|sbi(?:\s+(?:po|clerk|so))?|rrb(?:\s+(?:alp|ntpc|group\s*d|je))?|tnpsc|mpsc|appsc|tspsc|kpsc|kerala\s+psc|nda|cds|afcat|ctet|tet|ugc\s*net|csir\s*net|lic(?:\s+aao)?|nabard|rbi(?:\s+grade\s*b)?|drdo|isro|bsf|crpf|cisf|itbp)\b/i;
+
+// Anything that makes this a question about the job database.
+const JOB_TOPIC_RX = /\b(jobs?|vacanc(?:y|ies)|posts?|openings?|recruit(?:ment|ing|s|ed)?|notifications?|apply|applications?|last\s*date|deadlines?|eligib(?:le|ility)|qualifications?|age\s*limit|salary|pay\s*scale|fees?|sarkari|naukri|hiring|admit\s*card|exam\s*date|exam\s*pattern|selection\s*process)\b/i;
+
+// Study/prep questions mention exams but should be answered from general
+// knowledge, not by listing job rows.
+const PREP_TOPIC_RX = /\b(syllabus|topics?|study|preparation|prepare|mock|interview|strategy|books?|cut[\s-]?off|previous\s+(?:year|paper)|how\s+to\s+prepare)\b/i;
+
+// Words that describe the request rather than the job. Without removing these,
+// "show me the latest jobs" would be searched as a title keyword and match nothing.
+const STOP_WORDS = new Set([
+  'what', 'which', 'when', 'where', 'who', 'why', 'how', 'many', 'much', 'are', 'is',
+  'was', 'were', 'the', 'a', 'an', 'and', 'or', 'for', 'in', 'on', 'at', 'to', 'of',
+  'with', 'from', 'by', 'about', 'me', 'my', 'i', 'you', 'your', 'we', 'our', 'it',
+  'its', 'their', 'this', 'that', 'these', 'those', 'there', 'here', 'any', 'all',
+  'some', 'please', 'tell', 'give', 'show', 'list', 'find', 'get', 'want', 'need',
+  'can', 'could', 'should', 'would', 'do', 'does', 'did', 'has', 'have', 'had', 'be',
+  'been', 'being', 'latest', 'recent', 'recently', 'new', 'newest', 'top', 'best',
+  'current', 'currently', 'active', 'available', 'open', 'opening', 'openings', 'job',
+  'jobs', 'vacancy', 'vacancies', 'post', 'posts', 'recruitment', 'notification',
+  'notifications', 'apply', 'application', 'applications', 'last', 'date', 'deadline',
+  'deadlines', 'detail', 'details', 'full', 'information', 'info', 'official', 'link',
+  'links', 'government', 'govt', 'central', 'state', 'india', 'indian', 'exam', 'exams',
+  'test', 'tests', 'syllabus', 'topic', 'topics', 'study', 'plan', 'preparation',
+  'strategy', 'books', 'cutoff', 'cut', 'off', 'previous', 'year', 'paper', 'salary',
+  'pay', 'scale', 'qualification', 'qualifications', 'age', 'limit', 'fee', 'fees',
+  'eligible', 'eligibility', 'admit', 'card', 'selection', 'process', 'more', 'much',
+]);
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Keep follow-up turns small and strictly shaped: only user/assistant text,
+// newest last, bounded so one pasted document cannot blow up the prompt.
+const sanitizeHistory = (history) => {
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .slice(-6)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
+};
+
+const findState = (text) => {
+  const lower = ` ${String(text || '').toLowerCase()} `;
+  // Word-boundary match so "goa" does not fire inside "goalkeeper".
+  return INDIAN_STATES.find((s) => new RegExp(`(^|[^a-z])${escapeRegex(s)}([^a-z]|$)`).test(lower)) || '';
+};
+
+const findExam = (text) => {
+  const match = String(text || '').match(EXAM_RX);
+  return match ? match[0].replace(/\s+/g, ' ').trim() : '';
+};
+
+const searchTerms = (text, exam, state) => {
+  let cleaned = ` ${String(text || '').toLowerCase()} `;
+  if (exam) cleaned = cleaned.replace(new RegExp(exam.split(/\s+/).map(escapeRegex).join('\\s+'), 'gi'), ' ');
+  if (state) cleaned = cleaned.replace(new RegExp(escapeRegex(state), 'gi'), ' ');
+  return [...new Set(
+    cleaned.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+      .filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
+  )].slice(0, 5);
+};
+
+const buildJobFilter = (baseFilter, { exam, state, terms }) => {
+  const clauses = [];
+  if (exam) {
+    // "SSC CGL" must match "SSC CGL 2026…" in the title, while a bare "SSC"
+    // also matches the examType enum.
+    const rx = new RegExp(exam.split(/\s+/).map(escapeRegex).join('\\s*'), 'i');
+    clauses.push({ $or: [{ title: rx }, { department: rx }, { postName: rx }, { examType: rx }, { tags: rx }] });
+  }
+  if (state) {
+    // Central ("All India") jobs are open to every state, so include them.
+    const rx = new RegExp(escapeRegex(state), 'i');
+    clauses.push({ $or: [{ state: rx }, { state: 'All India' }] });
+  }
+  // Each remaining term narrows further (e.g. "police" AND "constable").
+  for (const term of terms) {
+    const rx = new RegExp(escapeRegex(term), 'i');
+    clauses.push({ $or: [{ title: rx }, { department: rx }, { postName: rx }, { tags: rx }] });
+  }
+  return clauses.length ? { ...baseFilter, $and: clauses } : { ...baseFilter };
+};
+
+const jobRow = (j) => {
+  const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : 'Not specified');
+  const qualifications = j.eligibility?.qualifications?.length
+    ? j.eligibility.qualifications.map((q) => [q.level, q.field].filter(Boolean).join(' ')).filter(Boolean).join(' / ')
+    : 'Not specified';
+  const ageRange = (j.eligibility?.ageMin || j.eligibility?.ageMax)
+    ? `${j.eligibility?.ageMin ?? '?'}-${j.eligibility?.ageMax ?? '?'} years`
+    : 'Not specified';
+  return `- [${j.title}](/jobs/${j.slug}) | Dept: ${j.department || 'Not specified'} | State: ${j.state || 'Not specified'} | Vacancies: ${j.totalVacancies ?? 'Not specified'} | Last date: ${day(j.applicationEndDate)} | Exam date: ${day(j.examDate)} | Qualification: ${qualifications} | Age: ${ageRange} | Salary: ${j.salary || 'Not specified'} | Apply: ${j.applyLink || j.officialWebsite || 'see job page'} | Official: ${j.officialWebsite || 'Not specified'}`;
+};
+
+export const chatWithAI = async (message, context, history = []) => {
   try {
-    // RAG: Inject real JobHexa jobs so AI doesn't hallucinate dates
+    const turns = sanitizeHistory(history);
+    const text = String(message || '');
+    const priorUser = turns.filter((t) => t.role === 'user').map((t) => t.content).slice(-2).join(' ');
+    const trimmed = text.trim();
+    const hasSubject = Boolean(findExam(text) || findState(text) || searchTerms(text, '', '').length);
+    // "What is its last date?" / "and the vacancies?" have no subject of their
+    // own — keep the exam/state from the previous user turn.
+    const isSmallTalk = /^(hi|hello|hey|thanks|thank you|good\s+(?:morning|evening|afternoon)|ok|okay|bye)\b/i.test(trimmed);
+    const looksLikeFollowUp = !isSmallTalk && (
+      /^(and|also|what about|how about|its|it|their|them|this|that|tell me more|more|why|which one)\b/i.test(trimmed)
+      || /\b(its|their|it|them|the same|those)\b/i.test(trimmed)
+      || (!hasSubject && Boolean(priorUser))
+    );
+    const currentIsJobQuery = JOB_TOPIC_RX.test(text) || (EXAM_RX.test(text) && !PREP_TOPIC_RX.test(text));
+    const priorWasJobQuery = JOB_TOPIC_RX.test(priorUser) || EXAM_RX.test(priorUser);
+    const wantsJobs = currentIsJobQuery || (looksLikeFollowUp && priorWasJobQuery);
+    const wantsEligibility = /\b(am\s+i|can\s+i|do\s+i|my\s+(?:profile|eligibility|chances)|qualify)\b/i.test(text)
+      || (/\beligib/i.test(text) && /\b(i|me|my)\b/i.test(text));
+
     let jobsContext = '';
     try {
-      const { default: Job } = await import('../models/Job.js');
-      const lower = message.toLowerCase();
-      const isEligibleQuery = lower.includes('elig');
-      // State-aware RAG: if user names a state, only ground on that state + All India
-      const STATES = ['tamil nadu','uttar pradesh','maharashtra','karnataka','kerala','bihar','west bengal','odisha','punjab','rajasthan','gujarat','assam','delhi','telangana','andhra pradesh','madhya pradesh','haryana','jharkhand','chhattisgarh'];
-      const hitState = STATES.find((s) => lower.includes(s));
-      const baseFilter = { jobStatus: { $in: ['active', 'closing_soon'] }, verificationStatus: 'verified' };
-      const proj = 'title slug department examType state applicationEndDate examDate totalVacancies eligibility applyLink officialWebsite';
-      let jobs;
-      if (hitState) {
-        // State jobs first, then All-India fill — otherwise centrals crowd out state rows
-        const own = await Job.find({ ...baseFilter, state: new RegExp(hitState, 'i') }).limit(10).select(proj);
-        const rest = await Job.find({ ...baseFilter, state: 'All India' }).limit(Math.max(0, 10 - own.length)).select(proj);
-        jobs = [...own, ...rest];
-      } else {
-        jobs = await Job.find(baseFilter).limit(10).select(proj);
-      }
-      // The list below is a sample (max 10) to keep the prompt small — give the
-      // AI the REAL totals so "how many jobs?" answers correctly.
-      const totalJobs = await Job.countDocuments(baseFilter);
-      const totalByState = hitState
-        ? await Job.countDocuments({ ...baseFilter, state: new RegExp(hitState, 'i') })
-        : null;
-      // For "what exam am I eligible" queries, filter to only eligible jobs using real eligibility engine
-      if (isEligibleQuery && (lower.includes('what') || lower.includes('which') || !lower.includes('for')) && context?._id) {
-        try {
+      if (wantsJobs) {
+        const { default: Job } = await import('../models/Job.js');
+        const exam = findExam(text) || (looksLikeFollowUp ? findExam(priorUser) : '');
+        const state = findState(text) || (looksLikeFollowUp ? findState(priorUser) : '');
+        const terms = searchTerms(text, exam, state);
+        const baseFilter = { jobStatus: { $in: ['active', 'closing_soon'] }, verificationStatus: 'verified' };
+        const filter = buildJobFilter(baseFilter, { exam, state, terms });
+        const proj = 'title slug department postName examType state applicationEndDate examDate totalVacancies eligibility salary applyLink officialWebsite tags';
+
+        const totalJobs = await Job.countDocuments(baseFilter);
+        let matchedTotal = await Job.countDocuments(filter);
+        let vacancyTotal = 0;
+        let jobs = [];
+        let eligibilityChecked = false;
+        let eligibilityIncomplete = false;
+        let missingFields = [];
+
+        // Eligibility needs the whole candidate set (76 jobs today), not a
+        // sample, otherwise a qualified job outside the first 10 is missed.
+        if (wantsEligibility && context?._id) {
           const { checkEligibility } = await import('./eligibility.service.js');
-          const { default: User } = await import('../models/User.js');
-          const user = await User.findById(context._id);
+          // req.user already carries the profile, so only hit the database when
+          // the caller passed an id alone.
+          const hasProfile = ['qualification', 'dateOfBirth', 'category'].some((k) => k in context);
+          const user = hasProfile ? context : await (await import('../models/User.js')).default.findById(context._id);
           if (user) {
-            const eligible = jobs.filter(j => {
-              const result = checkEligibility(user, j);
-              return result.eligible;
-            });
-            if (eligible.length > 0) jobs = eligible;
+            const pool = await Job.find(filter).sort({ createdAt: -1 }).limit(200).select(proj);
+            const evaluated = pool.map((j) => ({ job: j, result: checkEligibility(user, j) }));
+            const eligibleJobs = evaluated.filter((e) => e.result.eligible === true).map((e) => e.job);
+            // eligible === null means "profile incomplete", not "not eligible".
+            eligibilityIncomplete = eligibleJobs.length === 0 && evaluated.some((e) => e.result.incompleteProfile);
+            missingFields = [...new Set(evaluated.flatMap((e) => e.result.missing || []))];
+            jobs = eligibleJobs.slice(0, 10);
+            matchedTotal = eligibleJobs.length;
+            vacancyTotal = eligibleJobs.reduce((sum, j) => sum + (Number(j.totalVacancies) || 0), 0);
+            eligibilityChecked = true;
           }
-        } catch (e) { console.error('[RAG] Eligibility filter failed', e.message); }
-      }
-      if (jobs.length) {
-        const row = (j) => {
-          const dl = j.applicationEndDate ? j.applicationEndDate.toISOString().split('T')[0] : 'Not specified';
-          const vac = j.totalVacancies ?? 'Not specified';
-          return `- [${j.title}](/jobs/${j.slug}) | ${j.department || 'Not specified'} | ${j.state || ''} | Vac: ${vac} | DL: ${dl} | Apply: ${j.applyLink || j.officialWebsite || 'see job page'}`;
-        };
-        jobsContext = `\n\nJobHexa Database — TOTAL ACTIVE JOBS IN THE SYSTEM: ${totalJobs}${hitState && totalByState != null ? ` (of which ${totalByState} are in ${hitState})` : ''}. The list below is only the ${jobs.length} most recent — when the user asks "how many jobs are there", answer with the TOTAL (${totalJobs}) and say the ${jobs.length} shown are the latest sample. Copy titles, vacancy numbers, dates and links EXACTLY as written. NEVER invent jobs, vacancy counts, groups (e.g. Group X/A/B/C/V) or dates not in this list. Write "Not specified" instead of guessing. If the user asks for something not in this list, say it is not in the database and point to the official site.\n${jobs.map(row).join('\n')}\nOfficial sites: SSC https://ssc.gov.in, UPSC https://upsc.gov.in, IBPS https://ibps.in, RRB https://indianrailways.gov.in, TNPSC https://tnpsc.gov.in, DRDO https://drdo.gov.in.\nIMPORTANT: list every job as: N. [Title](/jobs/slug) | Vacancies | Deadline | [Details](/jobs/slug) [Apply](apply-url). "Details" and "Apply" MUST be markdown links — never plain text. Keep the title link exactly [Title](/jobs/slug) so users can click through.`;
-        if (isEligibleQuery && jobs.length < 10) {
-          jobsContext += `\nNOTE: This list is already filtered to only jobs you are eligible for based on your profile. Say you are eligible for these ${jobs.length} exams.`;
+        }
+
+        // Only fall back to a keyword-less sample when eligibility was not the
+        // filter — otherwise zero eligible jobs would be replaced by a list of
+        // jobs the user cannot apply for.
+        if (!jobs.length && !eligibilityChecked) {
+          jobs = await Job.find(filter).sort({ createdAt: -1 }).limit(10).select(proj);
+          const agg = await Job.aggregate([{ $match: filter }, { $group: { _id: null, total: { $sum: '$totalVacancies' } } }]);
+          vacancyTotal = agg[0]?.total || 0;
+        }
+
+        const scope = [exam && `exam "${exam}"`, state && `state ${state}`, terms.length && `keywords "${terms.join(' ')}"`]
+          .filter(Boolean).join(', ');
+
+        if (matchedTotal === 0) {
+          jobsContext = eligibilityIncomplete
+            ? `\n\nJobHexa Database — TOTAL ACTIVE JOBS IN THE SYSTEM: ${totalJobs}. The user's profile is incomplete (missing: ${missingFields.join(', ') || 'details'}), so eligibility cannot be determined. Ask them to complete their profile before answering; do not say they are ineligible.`
+            : eligibilityChecked
+              ? `\n\nJobHexa Database — TOTAL ACTIVE JOBS IN THE SYSTEM: ${totalJobs}. The user's saved profile does not meet the eligibility criteria for any active verified job${scope ? ` matching ${scope}` : ''}. Say so honestly, suggest updating their profile, and never invent an eligible job.`
+              : `\n\nJobHexa Database — TOTAL ACTIVE JOBS IN THE SYSTEM: ${totalJobs}. There is no active verified job${scope ? ` matching ${scope}` : ''}. Tell the user it is not in the JobHexa database and point them to the official website. Never invent a job to fill the gap.`;
+        } else {
+          jobsContext = `\n\nJobHexa Database — TOTAL ACTIVE JOBS IN THE SYSTEM: ${totalJobs}. MATCHING THIS QUERY${scope ? ` (${scope})` : ''}: ${matchedTotal} job(s), ${vacancyTotal} vacancies in total. The ${jobs.length} row(s) below are the latest sample, not the whole set. Copy every number, date and link exactly; use "Not specified" for blank fields.\n${jobs.map(jobRow).join('\n')}\nOfficial sites: SSC https://ssc.gov.in, UPSC https://upsc.gov.in, IBPS https://ibps.in, RRB https://indianrailways.gov.in, TNPSC https://tnpsc.gov.in, DRDO https://drdo.gov.in.`;
+          if (wantsEligibility) {
+            jobsContext += eligibilityChecked
+              ? `\nELIGIBILITY: This list is filtered to jobs the user's saved profile meets (${matchedTotal}). Say the user is eligible for these; never claim eligibility for jobs outside this list.`
+              : '\nELIGIBILITY: The user is not logged in (or their profile could not be loaded), so eligibility cannot be checked. Explain that they need to log in and complete their profile for an eligibility answer.';
+          }
         }
       }
     } catch (e) { console.error('[RAG] Jobs fetch failed', e.message); }
@@ -117,9 +268,30 @@ export const chatWithAI = async (message, context) => {
     // a token hog and must never leave for a third-party API.
     const cu = (context && typeof context.toObject === 'function') ? context.toObject() : (context || {});
     const tinyCtx = { name: cu.name, state: cu.state, category: cu.category, qualification: cu.qualification, dateOfBirth: cu.dateOfBirth };
+
+    const systemPrompt = [
+      'You are JobHexa AI, a helpful assistant for Indian government job aspirants.',
+      'Answer the question the user actually asked. Do NOT paste a job list unless they asked for jobs, vacancies, openings or recommendations.',
+      'Only state job facts (titles, vacancies, dates, fees, links) that appear in the JobHexa Database section; never invent or guess them. Copy values exactly.',
+      'If a job field is missing from the database, write "Not specified" — never "undefined" or an invented value.',
+      'If the user asks about one exam, answer about that exam only.',
+      'If the user asks how many jobs or vacancies, use the TOTAL / MATCHING / VACANCIES numbers in the database section. Never count the sample rows and present that as the total.',
+      'If a requested job is not in the database, say it is not in the database and link the official site.',
+      'Only when the user asked to see jobs, format each as: N. [Title](/jobs/slug) — Vacancies: X — Last date: YYYY-MM-DD — [Details](/jobs/slug) [Apply](url), using the exact slug and apply URL from the row.',
+      'For non-job questions (general knowledge, greetings, study advice, syllabus, interview prep), answer normally from your own knowledge and ignore the database section.',
+      'Be concise, accurate and friendly. Use markdown.',
+      `User profile: ${JSON.stringify(tinyCtx)}.`,
+    ].join('\n') + jobsContext;
+
+    // Drop an echoed current message if the client included it in history.
+    if (turns.length && turns[turns.length - 1].role === 'user' && turns[turns.length - 1].content.trim() === text.trim()) {
+      turns.pop();
+    }
+
     const content = await aiChat([
-      { role: 'system', content: 'You are JobHexa AI assistant for Indian government job aspirants. RULES: (1) Only mention jobs from the JobHexa Database below — never invent post names, groups, vacancy numbers or dates. (2) Copy titles, numbers, dates and links exactly. (3) Use "Not specified" for anything missing — never write "undefined". (4) If asked for jobs not in the list, say so and direct to the official site. For each job, format the title as a markdown link [Title](/jobs/slug) exactly as provided so user can click to visit. Be accurate, concise, helpful. User context: ' + JSON.stringify(tinyCtx) + jobsContext },
-      { role: 'user', content: message },
+      { role: 'system', content: systemPrompt },
+      ...turns,
+      { role: 'user', content: text },
     ], { maxTokens: 1200 });
     return { reply: content };
   } catch (e) {

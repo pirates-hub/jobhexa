@@ -824,11 +824,17 @@ function Chat() {
     setInput('');
     setLoading(true);
     const panelHandled = await fetchRightPanel(userText);
+    // Send the recent conversation so follow-ups ("and its last date?") keep
+    // their subject instead of arriving as a brand-new question.
+    const history = messages
+      .filter((m) => m?.text)
+      .slice(-6)
+      .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text }));
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAccessToken() || ''}` },
-        body: JSON.stringify({ message: userText }),
+        body: JSON.stringify({ message: userText, history }),
       });
       const data = await res.json();
       const reply = data.data?.reply || data.message || 'No reply';
