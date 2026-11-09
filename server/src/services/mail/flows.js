@@ -106,6 +106,20 @@ const pausedResult = (flow) => ({
   paused: true,
 });
 
+// Aggregate skip reasons so production logs explain why a flow sent nothing
+// without needing per-user debug output.
+const addReason = (reasons, reason) => {
+  const key = String(reason || 'unknown');
+  reasons[key] = (reasons[key] || 0) + 1;
+};
+
+const reasonText = (reasons = {}) => {
+  const entries = Object.entries(reasons);
+  return entries.length
+    ? ` (${entries.map(([key, count]) => `${key}=${count}`).join(', ')})`
+    : '';
+};
+
 export const studyPlanLogKey = (day, date = new Date()) =>
   `studyplan_day_${day}_${ymdIST(date)}`;
 
@@ -209,7 +223,7 @@ export const sendEligibleDigest = async () => {
       .lean(),
   ]);
 
-  const result = { flow, sent: 0, skipped: 0, failed: 0, noMatches: 0, incompleteProfiles: 0, total: users.length };
+  const result = { flow, sent: 0, skipped: 0, failed: 0, noMatches: 0, incompleteProfiles: 0, total: users.length, reasons: {} };
   if (!users.length || !jobs.length) {
     console.log(`[Mail] ${flow}: ${users.length} users, ${jobs.length} jobs — nothing to do`);
     return result;
@@ -237,12 +251,14 @@ export const sendEligibleDigest = async () => {
     if (incomplete) {
       result.incompleteProfiles += 1;
       result.skipped += 1;
+      addReason(result.reasons, 'incomplete_profile');
       continue;
     }
 
     if (!matches.length) {
       result.noMatches += 1;
       result.skipped += 1;
+      addReason(result.reasons, 'no_matches');
       continue;
     }
 
@@ -291,15 +307,19 @@ export const sendEligibleDigest = async () => {
           preferencesUrl: preferencesUrl(),
         }),
       });
-      if (mail.skipped) result.skipped += 1;
-      else result.sent += 1;
+      if (mail.skipped) {
+        result.skipped += 1;
+        addReason(result.reasons, mail.reason || 'skipped');
+      } else {
+        result.sent += 1;
+      }
     } catch (error) {
       result.failed += 1;
       console.error(`[Mail] eligible digest failed for ${user.email}: ${error.message}`);
     }
   }
 
-  console.log(`[Mail] ${flow}: sent ${result.sent}, skipped ${result.skipped}, failed ${result.failed}`);
+  console.log(`[Mail] ${flow}: sent ${result.sent}, skipped ${result.skipped}${reasonText(result.reasons)}, failed ${result.failed}`);
   return result;
 };
 
@@ -325,7 +345,7 @@ export const checkDeadlines = async () => {
     }))
     .filter((entry) => REMINDER_DAYS.includes(entry.daysLeft));
 
-  const result = { flow, sent: 0, skipped: 0, failed: 0, notifications: 0, jobs: due.length };
+  const result = { flow, sent: 0, skipped: 0, failed: 0, notifications: 0, jobs: due.length, reasons: {} };
   if (!due.length) {
     console.log(`[Mail] ${flow}: no jobs at 7/3/1/0 days`);
     return result;
@@ -365,7 +385,11 @@ export const checkDeadlines = async () => {
     const ids = audience.get(String(job._id)) || new Set();
     for (const id of ids) {
       const user = byId.get(String(id));
-      if (!user) continue;
+      if (!user) {
+        result.skipped += 1;
+        addReason(result.reasons, 'reminders_disabled');
+        continue;
+      }
 
       const type = daysLeft === 0 ? 'deadline_today' : `deadline_${daysLeft}day`;
       try {
@@ -388,6 +412,7 @@ export const checkDeadlines = async () => {
         const mail = await sendDeadlineEmail({ user, job, daysLeft });
         if (mail.skipped) {
           result.skipped += 1;
+          addReason(result.reasons, mail.reason || 'skipped');
         } else {
           result.sent += 1;
           await markNotificationBoth({ user: user._id, job: job._id, type });
@@ -399,7 +424,7 @@ export const checkDeadlines = async () => {
     }
   }
 
-  console.log(`[Mail] ${flow}: sent ${result.sent}, skipped ${result.skipped}, failed ${result.failed}`);
+  console.log(`[Mail] ${flow}: sent ${result.sent}, skipped ${result.skipped}${reasonText(result.reasons)}, failed ${result.failed}`);
   return result;
 };
 
@@ -408,12 +433,13 @@ export const checkStudyPlans = async () => {
   if (isPaused()) return pausedResult(flow);
 
   const plans = await StudyPlan.find({ isActive: true, notifyDaily: true }).populate('user');
-  const result = { flow, sent: 0, skipped: 0, failed: 0, notifications: 0, total: plans.length };
+  const result = { flow, sent: 0, skipped: 0, failed: 0, notifications: 0, total: plans.length, reasons: {} };
 
   for (const plan of plans) {
     const user = plan.user;
     if (!user || !plan.plan?.length) {
       result.skipped += 1;
+      addReason(result.reasons, 'no_plan_data');
       continue;
     }
 
@@ -440,6 +466,7 @@ export const checkStudyPlans = async () => {
     const day = plan.plan[dayNumber - 1];
     if (!day) {
       result.skipped += 1;
+      addReason(result.reasons, 'no_day');
       continue;
     }
 
@@ -467,6 +494,7 @@ export const checkStudyPlans = async () => {
       });
       if (mail.skipped) {
         result.skipped += 1;
+        addReason(result.reasons, mail.reason || 'skipped');
       } else {
         result.sent += 1;
         await markNotificationBoth({
@@ -481,7 +509,7 @@ export const checkStudyPlans = async () => {
     }
   }
 
-  console.log(`[Mail] ${flow}: sent ${result.sent}, skipped ${result.skipped}, failed ${result.failed}`);
+  console.log(`[Mail] ${flow}: sent ${result.sent}, skipped ${result.skipped}${reasonText(result.reasons)}, failed ${result.failed}`);
   return result;
 };
 
