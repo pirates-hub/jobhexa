@@ -10,6 +10,7 @@ import errorHandler from './src/middleware/errorHandler.js';
 import passport from './src/config/passport.js';
 import { assertValidRegistry } from './src/config/officialSources.js';
 import { startMailScheduler } from './src/services/mail/scheduler.js';
+import { describeProviders, isDryRun, isPaused, providerChain } from './src/services/mail/config.js';
 import { startJobUpdateCron } from './src/services/jobUpdate.service.js';
 import { startCollectionCrons } from './src/services/collection.schedule.js';
 
@@ -57,7 +58,30 @@ app.use(passport.initialize());
 
 // Routes
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'JobHexa API is running' });
+  res.json({
+    status: 'ok',
+    message: 'JobHexa API is running',
+    commit: process.env.RENDER_GIT_COMMIT || 'dev',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Public, read-only mail configuration check. Never exposes keys — only which
+// provider is live and which sender address it will use. Lets us verify a
+// Render deploy without needing the admin login.
+app.get('/api/health/mail', (req, res) => {
+  const chain = providerChain();
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    success: true,
+    data: {
+      configured: chain.length > 0,
+      chain,
+      dryRun: isDryRun(),
+      paused: isPaused(),
+      providers: describeProviders().filter((provider) => provider.configured),
+    },
+  });
 });
 
 app.use('/api', routes);
