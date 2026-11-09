@@ -3,50 +3,19 @@ import User from '../models/User.js';
 import AdminAuditLog from '../models/AdminAuditLog.js';
 import Notification from '../models/Notification.js';
 import NotificationLog from '../models/NotificationLog.js';
+import MailDelivery from '../models/MailDelivery.js';
+import MailAttempt from '../models/MailAttempt.js';
 import slugify from 'slugify';
-import { sendEmail } from '../config/nodemailer.js';
+import {
+  getMailStatus as buildMailStatus,
+  runFlow,
+  sendAdminManual,
+  sendAdminTest,
+} from '../services/mail/index.js';
 import { notifyNewJobTelegram } from '../services/telegram.service.js';
 
 const logAction = async (adminId, action, targetType, targetId, details, ip) => {
   await AdminAuditLog.create({ admin: adminId, action, targetType, targetId, details, ipAddress: ip });
-};
-
-// New-job email fan-out. Runs in the BACKGROUND: the approval request returns
-// immediately, and the mail queue (200ms gap, Gmail-safe) drains on its own.
-// Every send is written to NotificationLog so Admin > Mails shows what went out.
-const mailNewJobAlerts = async (job) => {
-  const users = await User.find({
-    'notificationPreferences.newJobs': { $ne: false },
-    'notificationPreferences.email': { $ne: false },
-    email: { $exists: true, $ne: '' },
-  }).select('email name _id').limit(500).lean();
-
-  if (!users.length) {
-    console.log(`[Notify] new-job mail: no opted-in recipients for "${job.title}"`);
-    return { sent: 0, total: 0, failed: 0 };
-  }
-
-  const { sendNewJobNotification } = await import('../services/email.service.js');
-  let sent = 0;
-  let failed = 0;
-
-  for (const u of users) {
-    try {
-      await sendNewJobNotification(u, job);
-      sent += 1;
-      await NotificationLog.updateOne(
-        { user: u._id, job: job._id, notificationType: 'new_job_published' },
-        { $set: { sentAt: new Date(), method: 'both' } },
-        { upsert: true }
-      ).catch(() => {});
-    } catch (e) {
-      failed += 1;
-      console.error(`[Notify] new-job mail failed for ${u.email}: ${e.message}`);
-    }
-  }
-
-  console.log(`[Notify] new-job mail "${job.title}": ${sent}/${users.length} sent, ${failed} failed`);
-  return { sent, total: users.length, failed };
 };
 
 // In-app bell entry for every opted-in user (fast; does not block on email).
@@ -104,13 +73,13 @@ export const verifyJob = async (req, res) => {
   job.verificationDate = new Date();
   await job.save();
   await logAction(req.user._id, 'verify_job', 'Job', job._id, {}, req.ip);
-  // INSTANT new-job alert — only on the pending -> verified transition (no resend spam)
-  // In-app bell now, email in the background (never blocks the approval request).
   if (!newlyPublished) return res.json({ success: true, data: { job } });
+  // In-app bell + Telegram only. The instant email fan-out was dropped in the
+  // mail rebuild: the daily eligible digest covers new jobs without burning
+  // provider quota on every approval.
   try {
     await pushInAppAlert(job);
   } catch (e) { console.error('[Notify] in-app verify alert failed', e.message); }
-  mailNewJobAlerts(job).catch((e) => console.error('[Notify] new-job mail batch failed', e.message));
   notifyNewJobTelegram(job);
   res.json({ success: true, data: { job } });
 };
@@ -131,7 +100,6 @@ export const createJob = async (req, res) => {
   try {
     await pushInAppAlert(job);
   } catch (e) { console.error('[Notify] in-app create alert failed', e.message); }
-  mailNewJobAlerts(job).catch((e) => console.error('[Notify] new-job mail batch failed', e.message));
   res.status(201).json({ success: true, data: { job } });
 };
 
@@ -185,7 +153,7 @@ export const getOverview = async (req, res) => {
   const byMethod = await NotificationLog.aggregate([{ $group: { _id: '$method', count: { $sum: 1 } } }]);
   const crons = [
     { name: 'Eligible-jobs mail', schedule: '0 7 * * *', ist: '7 AM IST daily' },
-    { name: 'Daily digest', schedule: '30 7 * * *', ist: '7:30 AM IST daily' },
+    { name: 'Eligible-jobs retry', schedule: '45 7 * * *', ist: '7:45 AM IST daily' },
     { name: 'Study plans', schedule: '0 8 * * *', ist: '8 AM IST daily' },
     { name: 'Deadline reminders (7/3/1/0)', schedule: '0 9 * * *', ist: '9 AM IST daily' },
     { name: 'Job status updater', schedule: '30 0 * * *', ist: '6 AM IST daily' },
@@ -270,16 +238,61 @@ export const addVideo = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 };
 
-// How mails were sent — unified log for admin panel
+// Latest logical deliveries + raw provider attempts. The Admin > Mails page
+// uses /mails/status for the aggregate view; this endpoint keeps pagination.
 export const getMailLogs = async (req, res) => {
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
-  const [logs, total, notifCount] = await Promise.all([
-    NotificationLog.find().populate('user', 'name email').populate('job', 'title slug').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
-    NotificationLog.countDocuments(),
-    Notification.countDocuments(),
+  const [deliveries, deliveryTotal, attempts, attemptTotal] = await Promise.all([
+    MailDelivery.find()
+      .populate('user', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    MailDelivery.countDocuments(),
+    MailAttempt.find().sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    MailAttempt.countDocuments(),
   ]);
-  res.json({ success: true, data: { logs, total, notifCount, page, limit } });
+  res.json({
+    success: true,
+    data: { deliveries, deliveryTotal, attempts, attemptTotal, page, limit },
+  });
+};
+
+export const getMailStatus = async (req, res) => {
+  try {
+    const status = await buildMailStatus();
+    res.json({ success: true, data: status });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+};
+
+export const sendTestMail = async (req, res) => {
+  const to = req.body?.to || req.user?.email;
+  if (!to) return res.status(400).json({ success: false, message: 'Recipient email is required' });
+  try {
+    const result = await sendAdminTest({ to, name: req.user?.name });
+    res.json({ success: true, data: { ...result, to } });
+  } catch (e) {
+    res.status(502).json({ success: false, message: e.message });
+  }
+};
+
+export const runMailFlow = async (req, res) => {
+  try {
+    const result = await runFlow(req.params.flow);
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: 'Unknown flow. Use eligible_digest, deadline_reminder or study_plan.',
+      });
+    }
+    res.json({ success: true, data: result });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
 };
 
 // Admin manual mail send
@@ -300,42 +313,37 @@ export const sendManualMail = async (req, res) => {
   } else if (Array.isArray(to) && to.length) {
     recipients = to.map((e) => ({ email: String(e).trim(), name: String(e).trim() }));
   } else {
-    return res.status(400).json({ success: false, message: 'Provide to: \"all\", email, or userIds[]' });
+    return res.status(400).json({ success: false, message: 'Provide to: "all", email, or userIds[]' });
   }
   if (!recipients.length) return res.status(404).json({ success: false, message: 'No recipients found' });
 
-  let sent = 0;
-  const errs = [];
-  for (const r of recipients) {
-    if (!r.email || !r.email.includes('@')) { errs.push(`${r.email || r._id}: invalid email`); continue; }
-    try {
-      const info = await sendEmail({
-        to: r.email,
-        subject,
-        html: html || `<p>${String(message).replace(/\n/g, '<br>')}</p>`,
-        text: message || html?.replace(/<[^>]+>/g, ' '),
-      });
-      // Mock/skipped sends resolve without delivering — never count them.
-      if (String(info?.messageId || '').startsWith('mock-')) {
-        errs.push(`${r.email}: SMTP not configured on server (mock mode — nothing was actually sent; set SMTP_USER/SMTP_PASS on Render)`);
-        continue;
-      }
-      if (info?.messageId === 'skipped-fake-domain') {
-        errs.push(`${r.email}: skipped (non-deliverable test domain)`);
-        continue;
-      }
-      // Also create in-app notification so it shows in bell
-      if (r._id) {
-        await Notification.create({
-          user: r._id,
-          type: 'system',
-          title: subject,
-          message: message || 'Admin message — check email',
-        });
-      }
-      sent++;
-    } catch (e) { errs.push(`${r.email}: ${e.message}`); }
+  const result = await sendAdminManual({ recipients, subject, message, html });
+
+  // Keep the in-app bell in sync with successfully delivered mails.
+  if (result.deliveredUserIds.length) {
+    const docs = result.deliveredUserIds.map((id) => ({
+      user: id,
+      type: 'system',
+      title: subject,
+      message: message || 'Admin message — check email',
+    }));
+    await Notification.insertMany(docs, { ordered: false }).catch((e) => {
+      console.error('[Admin] manual-mail in-app notification failed:', e.message);
+    });
   }
-  await logAction(req.user._id, 'manual_mail', 'User', null, { to: typeof to === 'string' ? to : `${recipients.length} users`, subject, sent, errs: errs.slice(0, 5) }, req.ip);
-  res.json({ success: true, data: { sent, total: recipients.length, errors: errs } });
+
+  await logAction(
+    req.user._id,
+    'manual_mail',
+    'User',
+    null,
+    {
+      to: typeof to === 'string' ? to : `${recipients.length} users`,
+      subject,
+      sent: result.sent,
+      errs: result.errors.slice(0, 5),
+    },
+    req.ip
+  );
+  res.json({ success: true, data: result });
 };

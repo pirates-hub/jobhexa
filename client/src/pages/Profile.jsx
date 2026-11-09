@@ -13,6 +13,7 @@ function Profile() {
     name: '', email: '', phone: '', dateOfBirth: '', gender: '',
     qualification: { highest: '', field: '', yearOfPassing: '', percentage: '', university: '' },
     state: '', district: '', category: '', preferredExamTypes: [],
+    notificationPreferences: { email: true, newJobs: true, deadlineReminders: true, studyPlanReminders: true },
   });
 
   useEffect(() => {
@@ -27,6 +28,12 @@ function Profile() {
           qualification: u.qualification || { highest: '', field: '', yearOfPassing: '', percentage: '', university: '' },
           state: u.state || '', district: u.district || '', category: u.category || '',
           preferredExamTypes: u.preferredExamTypes || [],
+          notificationPreferences: {
+            email: u.notificationPreferences?.email !== false,
+            newJobs: u.notificationPreferences?.newJobs !== false,
+            deadlineReminders: u.notificationPreferences?.deadlineReminders !== false,
+            studyPlanReminders: u.notificationPreferences?.studyPlanReminders !== false,
+          },
         });
       } catch { setMessage({ type: 'error', text: 'Failed to load profile' }); } finally { setLoading(false); }
     };
@@ -53,6 +60,15 @@ function Profile() {
   const handleExamToggle = (slug) => {
     const cur = form.preferredExamTypes;
     setForm({ ...form, preferredExamTypes: cur.includes(slug) ? cur.filter(e=>e!==slug) : [...cur, slug] });
+  };
+  const handlePrefToggle = (key) => {
+    setForm({
+      ...form,
+      notificationPreferences: {
+        ...form.notificationPreferences,
+        [key]: !form.notificationPreferences?.[key],
+      },
+    });
   };
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -182,6 +198,45 @@ function Profile() {
                       </button>
                     ))}
                   </div>
+
+                  <div className="mt-8 pt-7 border-t border-slate-200">
+                    <p className="text-sm font-bold text-slate-900">Email notifications</p>
+                    <p className="text-xs font-medium text-slate-500 mt-1">Choose which JobHexa emails reach your inbox.</p>
+                    <div className="mt-3 divide-y divide-slate-100">
+                      {[
+                        { key: 'email', title: 'Email me', desc: 'Master switch for every email below.' },
+                        { key: 'newJobs', title: 'Daily eligible jobs', desc: 'One morning mail with jobs that match your profile.' },
+                        { key: 'deadlineReminders', title: 'Deadline reminders', desc: '7, 3, 1 and 0 days left for saved or applied jobs.' },
+                        { key: 'studyPlanReminders', title: 'Study plan daily', desc: 'Today’s topic and tasks from your active plan.' },
+                      ].map((pref) => {
+                        const on = form.notificationPreferences?.[pref.key] !== false;
+                        return (
+                          <div key={pref.key} className="flex items-center justify-between gap-4 py-4">
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">{pref.title}</p>
+                              <p className="text-xs font-medium text-slate-500 mt-0.5">{pref.desc}</p>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={on}
+                              aria-label={pref.title}
+                              onClick={() => handlePrefToggle(pref.key)}
+                              className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${on ? 'bg-slate-900' : 'bg-slate-300'}`}
+                            >
+                              <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${on ? 'left-6' : 'left-1'}`} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {form.notificationPreferences?.email === false && (
+                      <p className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] font-medium text-amber-900">
+                        Email is off. In-app notifications still work, and you can turn email back on here at any time.
+                      </p>
+                    )}
+                  </div>
+
                   <div className="mt-6 rounded-2xl bg-indigo-50 border border-indigo-100 p-4 flex gap-3"><span className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0">✦</span><p className="text-xs font-medium text-indigo-900 leading-relaxed">Select at least 2–3 exam types you’re actively preparing for. You can change anytime.</p></div>
                 </div>
               )}

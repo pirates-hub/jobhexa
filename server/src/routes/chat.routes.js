@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { protect } from '../middleware/auth.middleware.js';
 import { chatWithAI, summarizePdf, generateStudyPlan, generateInterviewQuestions } from '../services/ai.service.js';
+import { claimStudyPlanDay, sendStudyPlanEmail, studyPlanLogKey } from '../services/mail/flows.js';
 const router = Router();
 router.post('/', protect, async (req, res) => {
   try {
@@ -69,30 +70,25 @@ router.post('/study-plan/start', protect, async (req, res) => {
     await plan.save();
     const today = plan.plan[0];
     if (today) {
-      const { claimStudyPlanDay, studyPlanLogKey } = await import('../services/reminder.service.js');
       const Notification = (await import('../models/Notification.js')).default;
       const NotificationLog = (await import('../models/NotificationLog.js')).default;
-      // Shared dedup gate with the scheduled job — restarting twice in one day sends once
+      // Shared dedup gate with the 8 AM flow — restarting twice in one day
+      // shows only one Day 1 in the bell.
       const won = await claimStudyPlanDay(req.user._id, plan._id, 1);
       if (won) {
         await Notification.create({ user: req.user._id, type: 'study_plan', title: `Day 1 Started: ${today.topic}`, message: `Your ${plan.exam} plan started! Today: ${today.topic} (${today.subject}) - ${today.hours}h` });
-        // Email for Day 1
-        try {
-          const { sendEmail } = await import('../config/nodemailer.js');
-          if (plan.user && req.user.email && req.user.notificationPreferences?.email !== false) {
-            await sendEmail({
-              to: req.user.email,
-              subject: `Day 1 Started: ${today.topic} - ${plan.exam}`,
-              html: `<p>Hi ${req.user.name},</p><p>Your <strong>${plan.exam}</strong> plan started!</p><p><strong>Day 1:</strong> ${today.topic} (${today.subject}) - ${today.hours}h</p><p>Tasks: ${today.tasks?.join(', ')}</p><p>Daily notifications at 8 AM IST enabled.</p>`,
-              text: `Day 1: ${today.topic} (${today.subject})`,
-            });
-            await NotificationLog.updateOne(
-              { user: req.user._id, job: plan._id, notificationType: studyPlanLogKey(1) },
-              { method: 'both' }
-            );
-          }
-        } catch (e) { console.error('Start email failed', e.message); }
       }
+      // Email dedupe is separate (MailDelivery), so a failed send can be
+      // retried even when the in-app entry was already created.
+      try {
+        const result = await sendStudyPlanEmail({ user: req.user, plan, day: today });
+        if (!result.skipped) {
+          await NotificationLog.updateOne(
+            { user: req.user._id, job: plan._id, notificationType: studyPlanLogKey(1) },
+            { $set: { method: 'both' } }
+          );
+        }
+      } catch (e) { console.error('Start email failed', e.message); }
     }
     res.json({ success: true, data: { message: 'Plan started! Daily notifications at 8 AM from Day 1.', plan } });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }

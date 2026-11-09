@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import User from '../models/User.js';
 import { generateAccessToken, generateRefreshToken, verifyToken } from '../utils/tokenUtils.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
+import { sendPasswordResetEmail, sendWelcomeEmail } from '../services/mail/flows.js';
 
 const cookieOpts = (maxAge) => ({
   httpOnly: true,
@@ -34,6 +35,12 @@ export const register = async (req, res) => {
       email,
       passwordHash,
       dateOfBirth,
+    });
+
+    // Welcome mail is transactional but must never delay or fail signup. The
+    // MailDelivery row makes a retry safe if the provider is briefly down.
+    sendWelcomeEmail(user).catch((error) => {
+      console.error('[Auth] welcome mail failed:', error.message);
     });
 
     const accessToken = generateAccessToken(user._id, user.role, user.tokenVersion || 0);
@@ -154,13 +161,7 @@ export const forgotPassword = async (req, res) => {
     await user.save();
     const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${token}`;
     try {
-      const { sendEmail } = await import('../config/nodemailer.js');
-      await sendEmail({
-        to: user.email,
-        subject: 'Reset your JobHexa password',
-        html: `<p>Hi ${user.name || ''},</p><p>Click to reset (valid 10 minutes):</p><p><a href="${link}">${link}</a></p><p>If you did not ask, ignore this mail.</p>`,
-        text: `Reset your password (10 minutes): ${link}`,
-      });
+      await sendPasswordResetEmail(user, { token, link });
     } catch (e) { console.error('[Forgot] mail failed', e.message); }
     return successResponse(res, { message: done });
   } catch (error) {

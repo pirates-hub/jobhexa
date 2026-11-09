@@ -1,288 +1,31 @@
-import cron from 'node-cron';
-import Job from '../models/Job.js';
-import User from '../models/User.js';
-import Notification from '../models/Notification.js';
-import NotificationLog from '../models/NotificationLog.js';
-import SavedJob from '../models/SavedJob.js';
-import Application from '../models/Application.js';
-import { sendDeadlineReminder } from './email.service.js';
+import { runAllFlows } from './mail/flows.js';
+import { startMailScheduler } from './mail/scheduler.js';
 
-const REMINDER_DAYS = [7, 3, 1, 0];
+// Compatibility facade. The old reminder service owned both the in-app
+// notifications and the SMTP sends. The rebuilt mail system now lives in
+// services/mail; these exports keep older routes/scripts working.
 
-export const checkDeadlines = async () => {
-  console.log('[Reminder] Checking deadlines...');
-  const now = new Date();
-  const jobs = await Job.find({ jobStatus: { $in: ['active', 'closing_soon'] }, verificationStatus: 'verified', applicationEndDate: { $gte: now } });
-  let sent = 0;
-  for (const job of jobs) {
-    const daysLeft = Math.ceil((new Date(job.applicationEndDate) - now) / (1000 * 60 * 60 * 24));
-    if (!REMINDER_DAYS.includes(daysLeft)) continue;
-    const type = daysLeft === 0 ? 'deadline_today' : `deadline_${daysLeft}day`;
-    // Audience: ONLY users tracking this job (saved or applied) who opted into
-    // deadline reminders — never a broad capped blast.
-    const [saved, applied] = await Promise.all([
-      SavedJob.find({ job: job._id }).select('user'),
-      Application.find({ job: job._id, status: { $ne: 'withdrawn' } }).select('user'),
-    ]);
-    const ids = [...new Set([...saved, ...applied].map((r) => String(r.user)))];
-    if (!ids.length) continue;
-    const users = await User.find({ _id: { $in: ids }, 'notificationPreferences.deadlineReminders': { $ne: false } });
-    for (const user of users) {
-      const exists = await NotificationLog.findOne({ user: user._id, job: job._id, notificationType: type });
-      if (exists) continue;
-      await Notification.create({ user: user._id, type, title: `Deadline: ${job.title}`, message: `${daysLeft === 0 ? 'Today is last day' : `${daysLeft} days left`} to apply for ${job.title}`, jobId: job._id });
-      await NotificationLog.create({ user: user._id, job: job._id, notificationType: type, method: 'in_app' });
-      // Email if enabled
-      if (user.notificationPreferences?.email !== false && user.email) {
-        try { await sendDeadlineReminder(user, job, daysLeft);
-          await NotificationLog.updateOne({ user: user._id, job: job._id, notificationType: type }, { method: 'both' });
-        } catch (e) { console.error('Email failed', e.message); }
-      }
-      sent++;
-    }
-  }
-  console.log(`[Reminder] Sent ${sent} notifications`);
-  return sent;
-};
+export {
+  checkDeadlines,
+  checkStudyPlans,
+  claimStudyPlanDay,
+  sendEligibleDigest,
+  studyPlanLogKey,
+} from './mail/flows.js';
 
-export const studyPlanLogKey = (day, date = new Date()) =>
-  `studyplan_day_${day}_${date.toISOString().split('T')[0]}`;
-
-// Single dedup gate for study-plan day mails, shared by the manual start
-// route and the scheduled job. Returns true when this caller won the send
-// (creates the log row); false when another path already sent it.
-export const claimStudyPlanDay = async (userId, planId, day, date = new Date()) => {
-  try {
-    await NotificationLog.create({
-      user: userId,
-      job: planId,
-      notificationType: studyPlanLogKey(day, date),
-      method: 'in_app',
-    });
-    return true;
-  } catch (e) {
-    if (e.code === 11000) return false; // already sent today
-    throw e;
-  }
-};
-
-export const checkStudyPlans = async () => {
-  let sent = 0;
-  try {
-    const StudyPlan = (await import('../models/StudyPlan.js')).default;
-    const plans = await StudyPlan.find({ isActive: true, notifyDaily: true }).populate('user');
-    for (const plan of plans) {
-      if (!plan.user || !plan.plan?.length) continue;
-      // Auto-advance by calendar: Day N = days since startDate + 1 (capped).
-      // Fixes stuck-at-Day-1 when user never marks complete manually.
-      if (plan.startDate) {
-        const autoDay = Math.min(
-          Math.max(1, Math.floor((Date.now() - new Date(plan.startDate).getTime()) / 86400000) + 1),
-          plan.plan.length
-        );
-        if (autoDay > plan.currentDay) {
-          plan.currentDay = autoDay;
-          await plan.save();
-        }
-      }
-      const dayIndex = Math.min(plan.currentDay, plan.plan.length) - 1;
-      const today = plan.plan[dayIndex];
-      if (!today) continue;
-      // Shared dedup gate with the manual start route — only one path sends per day
-      const won = await claimStudyPlanDay(plan.user._id, plan._id, plan.currentDay);
-      if (!won) continue;
-      const logKey = studyPlanLogKey(plan.currentDay);
-      await Notification.create({
-        user: plan.user._id,
-        type: 'study_plan',
-        title: `Day ${plan.currentDay}: ${today.topic}`,
-        message: `Today's focus: ${today.topic} (${today.subject}) - ${today.hours}h. Tasks: ${today.tasks?.join(', ')}`,
-      });
-      if (plan.user.notificationPreferences?.email !== false && plan.user.email) {
-        try {
-          const { sendEmail } = await import('../config/nodemailer.js');
-          await sendEmail({
-            to: plan.user.email,
-            subject: `Day ${plan.currentDay}: ${today.topic} - Study Plan`,
-            html: `<p>Hi ${plan.user.name},</p><p>Today is <strong>Day ${plan.currentDay}</strong> of your ${plan.exam} plan:</p><p><strong>${today.topic}</strong> (${today.subject}) - ${today.hours}h</p><p>Tasks: ${today.tasks?.join(', ')}</p>`,
-            text: `Day ${plan.currentDay}: ${today.topic} (${today.subject})`,
-          });
-          await NotificationLog.updateOne(
-            { user: plan.user._id, job: plan._id, notificationType: logKey },
-            { method: 'both' }
-          );
-        } catch (e) { console.error(`[StudyPlan] Email failed for ${plan.user.email}: ${e.message}`); }
-      }
-      // Advance day for next notification (optional - or keep manual)
-      // Auto-advance already handled by calendar above; manual complete-day endpoint also available.
-      sent++;
-    }
-    if (sent > 0) console.log(`[StudyPlan] Sent ${sent} daily notifications`);
-    return sent;
-  } catch (e) { console.error('[StudyPlan] Check failed', e.message); return sent; }
-};
-
-export const sendDailyDigest = async () => {
-  console.log('[Digest] Building daily summary...');
-  const now = new Date();
-  const in3Days = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-  const active = await Job.find({ jobStatus: 'active', verificationStatus: 'verified' }).sort({ applicationEndDate: 1 }).limit(20);
-  const closingSoon = active.filter((j) => j.applicationEndDate && new Date(j.applicationEndDate) <= in3Days);
-  if (!active.length) return 0;
-  const users = await User.find({}).select('_id email notificationPreferences').limit(500);
-  let sent = 0;
-  // Digest dedup uses Notification itself (no Job to log against), so we
-  // directly check recent system notifications per user.
-  for (const user of users) {
-    const logKey = `daily_digest_${now.toISOString().split('T')[0]}`;
-    const already = await Notification.findOne({ user: user._id, type: 'system', title: { $regex: '^Daily digest' }, createdAt: { $gte: new Date(now.toISOString().split('T')[0]) } });
-    if (already) continue;
-    const lines = active.slice(0, 5).map((j) => `• ${j.title} (Last: ${new Date(j.applicationEndDate).toLocaleDateString('en-IN')})`).join('\n');
-    const msg = `${active.length} active jobs today.${closingSoon.length ? ` ${closingSoon.length} closing in 3 days!` : ''}\n${lines}`;
-    await Notification.create({
-      user: user._id,
-      type: 'system',
-      title: `Daily digest — ${active.length} open jobs`,
-      message: msg,
-    });
-    sent++;
-  }
-  console.log(`[Digest] Sent ${sent} digests`);
-  return sent;
-};
-
-export const sendEligibleDigest = async () => {
-  console.log('[Eligible] Building daily eligible-jobs mails...');
-  try {
-    const { checkEligibility } = await import('./eligibility.service.js');
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const jobs = await Job.find({ jobStatus: { $in: ['active', 'closing_soon'] }, verificationStatus: 'verified' })
-      .sort({ applicationEndDate: 1 }).limit(50);
-    if (!jobs.length) return 0;
-    const users = await User.find({ email: { $exists: true, $ne: '' } }).limit(500);
-    const base = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
-    const logType = `daily_eligible_${todayStr}`;
-    let sent = 0;
-    for (const user of users) {
-      const matches = [];
-      for (const j of jobs) {
-        try {
-          const r = checkEligibility(user, j);
-          if (r?.eligible) matches.push({ job: j, score: r.score || 0 });
-        } catch {}
-        if (matches.length >= 8) break;
-      }
-      if (!matches.length) continue; // no mail when nothing matches (saves quota)
-      matches.sort((a, b) => b.score - a.score);
-      const dl = (d) => (d ? new Date(d).toLocaleDateString('en-IN') : 'see notice');
-      const textLines = matches.map(({ job: j }, i) => `${i + 1}. ${j.title} — last date: ${dl(j.applicationEndDate)} — ${base}/jobs/${j.slug}`).join('\n');
-      const htmlLines = matches.map(({ job: j }) => `<li><a href="${base}/jobs/${j.slug}"><strong>${j.title}</strong></a> — last date: ${dl(j.applicationEndDate)}</li>`).join('');
-      const title = `You are eligible for ${matches.length} job(s) today`;
-
-      // In-app bell: once per day. Kept independent of email so a mail
-      // failure never hides the alert.
-      const alreadyInApp = await Notification.findOne({ user: user._id, type: 'system', title: { $regex: '^You are eligible' }, createdAt: { $gte: new Date(todayStr) } });
-      if (!alreadyInApp) {
-        await Notification.create({ user: user._id, type: 'system', title, message: `You are eligible for these ${matches.length} job(s) today:\n${textLines}` });
-      }
-
-      // Email: deduped by NotificationLog, NOT by the in-app notification.
-      // A failed send stays unlogged, so the 7:45 retry / next boot resends
-      // instead of silently losing the whole day.
-      const mailLogged = await NotificationLog.findOne({ user: user._id, notificationType: logType });
-      if (user.notificationPreferences?.email !== false && user.email && !mailLogged) {
-        try {
-          const { sendEmail } = await import('../config/nodemailer.js');
-          const { makeUnsubscribeToken } = await import('../utils/mailToken.js');
-          // Brevo's anti-spam policy requires a working opt-out on recurring
-          // mail. Without it the account was flagged and sending was paused.
-          const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(makeUnsubscribeToken(user._id))}`;
-          const footerHtml = `<hr style="margin:24px 0 12px;border:none;border-top:1px solid #e2e8f0">
-<p style="font-size:12px;color:#64748b;line-height:1.6">You received this because you registered for job alerts at <a href="${base}" style="color:#64748b">JobHexa</a>.<br>
-<a href="${unsubUrl}" style="color:#2563eb">Unsubscribe from these emails</a></p>`;
-          await sendEmail({
-            to: user.email,
-            subject: `${title} — JobHexa`,
-            html: `<h2>${title}</h2><p>Hi ${user.name || ''}, based on your profile you can apply for:</p><ol>${htmlLines}</ol><p>Deadlines approach fast — apply early.</p>${footerHtml}`,
-            text: `Hi ${user.name || ''}, you are eligible for:\n${textLines}\n\nYou received this because you registered for job alerts at ${base}.\nUnsubscribe: ${unsubUrl}`,
-            headers: {
-              'List-Unsubscribe': `<${unsubUrl}>`,
-              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-            },
-          });
-          await NotificationLog.updateOne(
-            { user: user._id, job: matches[0].job._id, notificationType: logType },
-            { $set: { sentAt: new Date(), method: 'both' } },
-            { upsert: true }
-          );
-          sent++;
-        } catch (e) {
-          console.error(`[Eligible] Email failed for ${user.email}: ${e.message} — will retry on the next run`);
-        }
-      }
-    }
-    console.log(`[Eligible] Sent ${sent} eligible digests`);
-    return sent;
-  } catch (e) { console.error('[Eligible] failed', e.message); return 0; }
-};
+// Dropped: the 7:30 in-app-only "Daily digest" duplicated the eligible-jobs
+// bell and the daily email. Kept as a no-op so old callers do not crash.
+export const sendDailyDigest = async () => 0;
 
 export const runAllNotificationChecks = async () => {
-  const deadlines = await checkDeadlines().catch((e) => { console.error('[Reminder] deadlines failed', e.message); return 0; });
-  const studyPlans = await checkStudyPlans().catch((e) => { console.error('[StudyPlan] failed', e.message); return 0; });
-  const digests = await sendDailyDigest().catch((e) => { console.error('[Digest] failed', e.message); return 0; });
-  const eligible = await sendEligibleDigest().catch((e) => { console.error('[Eligible] failed', e.message); return 0; });
-  return { deadlines, studyPlans, digests, eligible };
+  const flows = await runAllFlows();
+  return {
+    deadlines: flows.deadline_reminder?.sent || 0,
+    studyPlans: flows.study_plan?.sent || 0,
+    digests: 0,
+    eligible: flows.eligible_digest?.sent || 0,
+    flows,
+  };
 };
 
-export const startReminderCron = (opts = {}) => {
-  const tz = { timezone: 'Asia/Kolkata' };
-  // NOTE: with `timezone` set, '30 7' means 7:30 AM IST (not UTC).
-  // These were previously '30 3'/'30 2'/'0 2' = 2:00–3:30 AM IST, when a
-  // free-tier instance is always asleep, so mails silently never fired.
-  cron.schedule('30 7 * * *', () => { sendDailyDigest().catch(console.error); }, tz); // 7:30 AM IST digest
-  cron.schedule('0 7 * * *', () => { sendEligibleDigest().catch(console.error); }, tz); // 7 AM IST eligible-jobs mail
-  cron.schedule('45 7 * * *', () => { sendEligibleDigest().catch(console.error); }, tz); // 7:45 IST retry for failed sends
-  cron.schedule('0 8 * * *', () => { checkStudyPlans().catch(console.error); }, tz); // 8 AM IST study plans
-  cron.schedule('0 9 * * *', () => { checkDeadlines().catch(console.error); }, tz); // 9 AM IST deadlines
-  console.log('[Reminder] Crons: 7 AM eligible mail (retry 7:45), 7:30 AM digest, 8 AM study plans, 9 AM deadlines IST (Asia/Kolkata)');
-  verifySmtpOnBoot();
-  if (opts.runOnBoot !== false) {
-    // Catch-up: if server was off at cron time, send due mails immediately on boot
-    setTimeout(() => runAllNotificationChecks().catch(console.error), 10 * 1000);
-  }
-};
-
-// Surface the mail reason in Render logs at every boot: SMTP misconfigured,
-// Gmail rejecting the app password, or all-good. No more silent no-mail days.
-async function verifySmtpOnBoot() {
-  const hasBrevo = Boolean((process.env.BREVO_API_KEY || '').trim());
-  const hasSmtp = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
-  const hasSendgrid = Boolean((process.env.SENDGRID_API_KEY || '').trim());
-  const prefer = (process.env.EMAIL_PROVIDER || '').toLowerCase();
-
-  const chain = [prefer, ...['sendgrid', 'smtp', 'brevo'].filter((p) => p !== prefer)]
-    .filter((p) => (p === 'sendgrid' && hasSendgrid) || (p === 'brevo' && hasBrevo) || (p === 'smtp' && hasSmtp));
-
-  if (!chain.length) {
-    console.error('[Email] No mail provider configured (SENDGRID_API_KEY, SMTP_USER/SMTP_PASS or BREVO_API_KEY) — mails are mocked, nothing is really sent');
-    return;
-  }
-  console.log(`[Email] Provider chain: ${chain.join(' -> ')}`);
-
-  if (!hasSmtp) {
-    console.log('[Email] SMTP not configured — sending through HTTPS APIs only');
-    return;
-  }
-  if (chain[0] !== 'smtp') {
-    console.log('[Email] SMTP is a fallback here; skipping the boot login test so a blocked port does not delay startup');
-    return;
-  }
-  try {
-    const { verifySmtp } = await import('../config/nodemailer.js');
-    const port = await verifySmtp();
-    console.log(`[Email] SMTP ready via ${process.env.SMTP_HOST || 'smtp.gmail.com'}:${port} as ${process.env.SMTP_USER}`);
-  } catch (e) {
-    console.error(`[Email] SMTP login FAILED: ${e.message} — the next provider in the chain will be tried per message`);
-  }
-}
+export const startReminderCron = (opts = {}) => startMailScheduler(opts);

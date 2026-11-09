@@ -64,6 +64,7 @@ const userSchema = new mongoose.Schema({
     email: { type: Boolean, default: true },
     newJobs: { type: Boolean, default: true },
     deadlineReminders: { type: Boolean, default: true },
+    studyPlanReminders: { type: Boolean, default: true },
     reminderDays: { type: [Number], default: [7, 3, 1] },
   },
   profileCompleted: {

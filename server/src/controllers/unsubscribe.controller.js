@@ -14,22 +14,24 @@ const page = (title, message) => `<!doctype html>
 </style></head>
 <body><main><h1>${title}</h1><p>${message}</p><a href="/">Back to JobHexa</a></main></body></html>`;
 
-// Public: the link is clicked from an email, so there is no session.
-export const unsubscribe = async (req, res) => {
-  const token = String(req.query.token || '');
-  if (!token) {
-    return res.status(400).send(page('Invalid link', 'This unsubscribe link is missing its token.'));
-  }
+const tokenFrom = (req) => String(req.query?.token || req.body?.token || '');
+
+const applyUnsubscribe = async (token) => {
+  if (!token) return { ok: false, status: 400, error: 'This unsubscribe link is missing its token.' };
   let payload;
   try {
     payload = readUnsubscribeToken(token);
   } catch {
-    return res.status(400).send(page('Link expired', 'This unsubscribe link is invalid or has expired. You can turn emails off from your profile instead.'));
+    return {
+      ok: false,
+      status: 400,
+      error: 'This unsubscribe link is invalid or has expired. You can turn emails off from your profile instead.',
+    };
   }
 
   const user = await User.findById(payload.sub).select('notificationPreferences');
   if (!user) {
-    return res.status(404).send(page('Account not found', 'We could not find the account for this link.'));
+    return { ok: false, status: 404, error: 'We could not find the account for this link.' };
   }
 
   user.notificationPreferences = {
@@ -37,6 +39,33 @@ export const unsubscribe = async (req, res) => {
     email: false,
   };
   await user.save();
+  return { ok: true, user };
+};
 
-  return res.send(page('You are unsubscribed', 'You will no longer receive job alert emails from JobHexa. In-app notifications still work, and you can turn emails back on any time from your profile.'));
+// Public: the link is clicked from an email, so there is no session.
+export const unsubscribe = async (req, res) => {
+  const result = await applyUnsubscribe(tokenFrom(req));
+  if (!result.ok) {
+    return res.status(result.status).send(page(
+      result.status === 404 ? 'Account not found' : 'Invalid link',
+      result.error
+    ));
+  }
+  return res.send(page(
+    'You are unsubscribed',
+    'You will no longer receive job alert emails from JobHexa. In-app notifications still work, and you can turn emails back on any time from your profile.'
+  ));
+};
+
+// RFC 8058 one-click: mailbox providers POST here from List-Unsubscribe-Post.
+// The signed token in the query string is the authentication; no body parsing
+// is required, but accepting body.token helps manual testing.
+export const unsubscribeOneClick = async (req, res) => {
+  try {
+    const result = await applyUnsubscribe(tokenFrom(req));
+    if (!result.ok) return res.status(result.status).json({ success: false, message: result.error });
+    return res.status(200).json({ success: true, message: 'Unsubscribed' });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
 };

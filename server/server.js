@@ -9,7 +9,7 @@ import routes from './src/routes/index.js';
 import errorHandler from './src/middleware/errorHandler.js';
 import passport from './src/config/passport.js';
 import { assertValidRegistry } from './src/config/officialSources.js';
-import { startReminderCron } from './src/services/reminder.service.js';
+import { startMailScheduler } from './src/services/mail/scheduler.js';
 import { startJobUpdateCron } from './src/services/jobUpdate.service.js';
 import { startCollectionCrons } from './src/services/collection.schedule.js';
 
@@ -20,11 +20,12 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB first, then start crons so queries never run on a cold DB.
-// startReminderCron auto-sends due mails 10s after boot (catch-up) + daily 7:30/8/9 AM IST.
+// startMailScheduler logs the provider chain, runs due flows 10s after boot
+// (catch-up) and schedules 7:00/7:45/8:00/9:00 IST mail.
 await connectDB();
 
 // Start crons (auto-send mails to users)
-startReminderCron(); // ← cron begins here
+startMailScheduler(); // ← mail crons + boot catch-up
 startJobUpdateCron();
 startCollectionCrons();
 
