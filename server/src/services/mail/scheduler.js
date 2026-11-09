@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { logMailStartup } from './mailer.js';
-import { checkDeadlines, checkStudyPlans, runAllFlows, sendEligibleDigest } from './flows.js';
+import { checkDeadlines, checkStudyPlans, runDueFlows, sendEligibleDigest } from './flows.js';
 
 const tasks = [];
 let started = false;
@@ -42,10 +42,11 @@ export const startMailScheduler = ({ runOnBoot = true } = {}) => {
   const bootCatchUp = runOnBoot
     && !['0', 'false', 'no', 'off'].includes(String(process.env.MAIL_BOOT_CATCHUP || '').toLowerCase());
   if (bootCatchUp) {
-    // The instance may have been asleep at 7/8/9 AM. MailDelivery makes this
-    // safe: anything already sent for today is skipped.
+    // The free instance may have been asleep at 7/8/9 AM. Only flows whose IST
+    // slot has passed are run, so a 6:55 wake does not send the 8 AM study mail.
+    // MailDelivery makes anything already sent for today a safe no-op.
     setTimeout(() => {
-      runAllFlows().catch((error) => console.error('[Mail] boot catch-up failed:', error.message));
+      runDueFlows().catch((error) => console.error('[Mail] boot catch-up failed:', error.message));
     }, 10 * 1000);
   }
 

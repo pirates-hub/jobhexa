@@ -36,6 +36,35 @@ const IST_DATE = new Intl.DateTimeFormat('en-CA', {
 // 5:30 AM IST and let a retry send yesterday's digest again.
 export const ymdIST = (date = new Date()) => IST_DATE.format(new Date(date));
 
+const IST_CLOCK = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Kolkata',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+// Minutes since midnight in Asia/Kolkata (0–1439). Free Render instances sleep,
+// so the boot catch-up must know which scheduled slots have already passed.
+export const minutesIST = (date = new Date()) => {
+  const parts = IST_CLOCK.formatToParts(new Date(date));
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
+  return (hour % 24) * 60 + minute;
+};
+
+const FLOW_START_MINUTES = {
+  eligible_digest: 7 * 60,
+  study_plan: 8 * 60,
+  deadline_reminder: 9 * 60,
+};
+
+export const dueFlowNames = (date = new Date()) => {
+  const now = minutesIST(date);
+  return Object.entries(FLOW_START_MINUTES)
+    .filter(([, start]) => now >= start)
+    .map(([name]) => name);
+};
+
 const startOfISTDay = (date = new Date()) => new Date(`${ymdIST(date)}T00:00:00+05:30`);
 
 const unsubscribeUrlFor = (user) =>
@@ -582,6 +611,42 @@ export const runAllFlows = async () => {
       results[name] = { flow: name, sent: 0, skipped: 0, failed: 0, error: error.message };
     }
   }
+  return results;
+};
+
+// Boot catch-up for sleeping free instances. Run only the flows whose IST slot
+// has already passed: waking at 6:55 must not send the 8 AM study mail. The
+// 7:00/8:00/9:00 crons still fire normally if the instance stays awake, and
+// MailDelivery makes a second run for the same period a no-op.
+export const runDueFlows = async (date = new Date()) => {
+  const due = new Set(dueFlowNames(date));
+  const results = {};
+
+  for (const [name, run] of [
+    ['eligible_digest', sendEligibleDigest],
+    ['study_plan', checkStudyPlans],
+    ['deadline_reminder', checkDeadlines],
+  ]) {
+    if (!due.has(name)) {
+      results[name] = { flow: name, sent: 0, skipped: 0, failed: 0, notDue: true };
+      continue;
+    }
+    try {
+      results[name] = await run();
+    } catch (error) {
+      console.error(`[Mail] ${name} failed: ${error.message}`);
+      results[name] = { flow: name, sent: 0, skipped: 0, failed: 0, error: error.message };
+    }
+  }
+
+  // Failed welcomes are transactional and not tied to a schedule slot.
+  try {
+    results.welcome_retry = await retryFailedWelcomes();
+  } catch (error) {
+    console.error(`[Mail] welcome_retry failed: ${error.message}`);
+    results.welcome_retry = { flow: 'welcome_retry', sent: 0, skipped: 0, failed: 0, error: error.message };
+  }
+
   return results;
 };
 
