@@ -4,6 +4,7 @@ import {
   brevoSender,
   isDryRun,
   isPaused,
+  mailjetSender,
   providerChain,
   replyTo,
   resendSender,
@@ -149,6 +150,55 @@ export const sendViaSendgrid = async ({ to, subject, html, text, headers }) => {
   return { provider: 'sendgrid', messageId: res.headers.get('x-message-id') || `sendgrid-${Date.now()}` };
 };
 
+const displayName = (from) => (from.match(/^"([^"]+)"/) || [])[1] || 'JobHexa';
+
+export const sendViaMailjet = async ({ to, subject, html, text, headers }) => {
+  const key = (process.env.MAILJET_API_KEY || '').trim();
+  const secret = (process.env.MAILJET_API_SECRET || '').trim();
+  if (!key || !secret) throw new MailProviderError('MAILJET_API_KEY/MAILJET_API_SECRET are missing');
+  const from = mailjetSender();
+  if (!addressOf(from)) throw new MailProviderError('MAILJET_FROM is empty');
+
+  const message = {
+    From: { Email: addressOf(from), Name: displayName(from) },
+    To: [{ Email: to }],
+    Subject: subject,
+    ...(text ? { TextPart: text } : {}),
+    ...(html ? { HTMLPart: html } : {}),
+    ...(headers && Object.keys(headers).length ? { Headers: headers } : {}),
+    ...(replyTo() ? { ReplyTo: { Email: replyTo() } } : {}),
+  };
+
+  const { res, data } = await postJson('https://api.mailjet.com/v3.1/send', {
+    Authorization: `Basic ${Buffer.from(`${key}:${secret}`).toString('base64')}`,
+    'Content-Type': 'application/json',
+  }, { Messages: [message] });
+
+  if (!res.ok) {
+    const raw = data?.ErrorMessage || data?.message || (typeof data === 'string' ? data : JSON.stringify(data));
+    const hint = res.status === 401
+      ? ' — MAILJET_API_KEY/MAILJET_API_SECRET are invalid'
+      : res.status === 400 && /sender/i.test(String(raw))
+        ? ` — "${addressOf(from)}" is not a validated sender in Mailjet`
+        : res.status === 429
+          ? ' — Mailjet rate limit reached'
+          : '';
+    throw new MailProviderError(`Mailjet ${res.status}: ${String(raw).slice(0, 300)}${hint}`, res.status);
+  }
+
+  const result = Array.isArray(data?.Messages) ? data.Messages[0] : null;
+  if (result?.Status && result.Status !== 'success') {
+    const errors = (result.Errors || []).map((entry) => entry.ErrorMessage).filter(Boolean).join('; ')
+      || result.Status;
+    throw new MailProviderError(`Mailjet rejected: ${errors}`, 400);
+  }
+
+  const messageId = result?.To?.[0]?.MessageUUID
+    || result?.To?.[0]?.MessageID
+    || `mailjet-${Date.now()}`;
+  return { provider: 'mailjet', messageId: String(messageId) };
+};
+
 export const sendViaBrevo = async ({ to, subject, html, text, headers }) => {
   const key = (process.env.BREVO_API_KEY || '').trim();
   if (!key) throw new MailProviderError('BREVO_API_KEY is missing');
@@ -227,6 +277,7 @@ export const sendViaSmtp = async ({ to, subject, html, text, headers }) => {
 const SENDERS = {
   resend: sendViaResend,
   sendgrid: sendViaSendgrid,
+  mailjet: sendViaMailjet,
   brevo: sendViaBrevo,
   smtp: sendViaSmtp,
 };
@@ -242,7 +293,7 @@ export const sendWithProviders = async ({ to, subject, html, text, headers = {},
 
   const chain = providerChain();
   if (!chain.length) {
-    throw new Error('No mail provider configured. Set RESEND_API_KEY (recommended), SENDGRID_API_KEY, or BREVO_API_KEY with BREVO_ENABLED=true.');
+    throw new Error('No mail provider configured. Set RESEND_API_KEY (recommended), SENDGRID_API_KEY, MAILJET_API_KEY + MAILJET_API_SECRET, or BREVO_API_KEY with BREVO_ENABLED=true.');
   }
 
   const failures = [];

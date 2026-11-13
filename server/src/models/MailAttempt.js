@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 const mailAttemptSchema = new mongoose.Schema({
   provider: {
     type: String,
-    enum: ['resend', 'sendgrid', 'brevo', 'smtp', 'mock'],
+    enum: ['resend', 'sendgrid', 'mailjet', 'brevo', 'smtp', 'mock'],
     required: true,
   },
   ok: {

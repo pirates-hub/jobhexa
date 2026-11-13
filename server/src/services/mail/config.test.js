@@ -4,6 +4,9 @@ import { providerChain, isDryRun, isPaused } from './config.js';
 const MANAGED = [
   'RESEND_API_KEY',
   'SENDGRID_API_KEY',
+  'MAILJET_API_KEY',
+  'MAILJET_API_SECRET',
+  'MAILJET_FROM',
   'BREVO_API_KEY',
   'BREVO_ENABLED',
   'SMTP_USER',
@@ -35,10 +38,23 @@ describe('mail provider chain', () => {
   it('orders Resend before SendGrid, and honours EMAIL_PROVIDER', () => {
     vi.stubEnv('RESEND_API_KEY', 're_test');
     vi.stubEnv('SENDGRID_API_KEY', 'SG.test');
-    expect(providerChain()).toEqual(['resend', 'sendgrid']);
+    vi.stubEnv('MAILJET_API_KEY', 'public-key');
+    vi.stubEnv('MAILJET_API_SECRET', 'secret-key');
+    expect(providerChain()).toEqual(['resend', 'sendgrid', 'mailjet']);
 
     vi.stubEnv('EMAIL_PROVIDER', 'sendgrid');
-    expect(providerChain()).toEqual(['sendgrid', 'resend']);
+    expect(providerChain()).toEqual(['sendgrid', 'resend', 'mailjet']);
+  });
+
+  it('requires both Mailjet credentials and honours EMAIL_PROVIDER=mailjet', () => {
+    vi.stubEnv('MAILJET_API_KEY', 'public-key');
+    expect(providerChain()).toEqual([]);
+
+    vi.stubEnv('MAILJET_API_SECRET', 'secret-key');
+    expect(providerChain()).toEqual(['mailjet']);
+
+    vi.stubEnv('EMAIL_PROVIDER', 'mailjet');
+    expect(providerChain()).toEqual(['mailjet']);
   });
 
   it('keeps Brevo disabled until explicitly enabled', () => {

@@ -36,6 +36,11 @@ export const sendgridSender = () => withName(
   process.env.SENDGRID_SENDER_NAME || 'JobHexa'
 );
 
+export const mailjetSender = () => withName(
+  addressOf(process.env.MAILJET_FROM || process.env.EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER),
+  process.env.MAILJET_SENDER_NAME || 'JobHexa'
+);
+
 export const brevoSender = () => withName(
   addressOf(process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER),
   process.env.BREVO_SENDER_NAME || 'JobHexa'
@@ -44,6 +49,7 @@ export const brevoSender = () => withName(
 export const senderFor = (provider) => {
   if (provider === 'resend') return resendSender();
   if (provider === 'sendgrid') return sendgridSender();
+  if (provider === 'mailjet') return mailjetSender();
   if (provider === 'brevo') return brevoSender();
   if (provider === 'smtp') return withName(addressOf(process.env.SMTP_FROM || process.env.SMTP_USER));
   return '';
@@ -54,6 +60,8 @@ export const replyTo = () => addressOf(process.env.RESEND_REPLY_TO || process.en
 export const providerConfigured = {
   resend: () => Boolean((process.env.RESEND_API_KEY || '').trim()),
   sendgrid: () => Boolean((process.env.SENDGRID_API_KEY || '').trim()),
+  mailjet: () => Boolean((process.env.MAILJET_API_KEY || '').trim())
+    && Boolean((process.env.MAILJET_API_SECRET || '').trim()),
   // Brevo is off unless explicitly enabled: the account was paused on 28 Oct
   // and its API accepts mail without delivering it, which hides failures.
   brevo: () => Boolean((process.env.BREVO_API_KEY || '').trim())
@@ -64,7 +72,7 @@ export const providerConfigured = {
     && (truthy(process.env.ALLOW_SMTP) || (process.env.EMAIL_PROVIDER || '').toLowerCase() === 'smtp'),
 };
 
-export const PROVIDER_ORDER = ['resend', 'sendgrid', 'brevo', 'smtp'];
+export const PROVIDER_ORDER = ['resend', 'sendgrid', 'mailjet', 'brevo', 'smtp'];
 
 export const providerChain = () => {
   const preferred = (process.env.EMAIL_PROVIDER || '').toLowerCase();

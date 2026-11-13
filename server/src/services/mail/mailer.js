@@ -313,7 +313,7 @@ export const getMailStatus = async () => {
 export const logMailStartup = () => {
   const chain = providerChain();
   if (!chain.length) {
-    console.error('[Mail] No provider configured. Set RESEND_API_KEY (recommended) or SENDGRID_API_KEY. Brevo requires BREVO_ENABLED=true; SMTP requires ALLOW_SMTP=true and does not work on Render.');
+    console.error('[Mail] No provider configured. Set RESEND_API_KEY (recommended), SENDGRID_API_KEY, MAILJET_API_KEY + MAILJET_API_SECRET, or BREVO_API_KEY with BREVO_ENABLED=true; SMTP requires ALLOW_SMTP=true and does not work on Render.');
     return;
   }
 
@@ -326,6 +326,9 @@ export const logMailStartup = () => {
   if (isPaused()) console.warn('[Mail] MAIL_PAUSED=true — scheduled and manual sends are disabled');
   if (chain.includes('brevo')) console.warn('[Mail] Brevo is enabled — only use it after compliance reinstates the account');
   if (chain.includes('smtp')) console.warn('[Mail] SMTP is enabled — Render blocks outbound ports 587/465; prefer an HTTPS API');
+  if (chain.includes('mailjet') && /@gmail\.com$/i.test(addressOf(senderFor('mailjet')))) {
+    console.warn('[Mail] Mailjet is sending from a Gmail address — Gmail DMARC may reduce inbox placement');
+  }
 
   if (chain.includes('resend')) {
     listResendDomains().then((result) => {

@@ -22,7 +22,7 @@ export const sendEmail = ({ to, subject, html, text, headers, flow, userId }) =>
 export const verifySmtp = async () => {
   const chain = providerChain();
   if (!chain.length) {
-    throw new Error('No mail provider configured. Set RESEND_API_KEY (recommended) or SENDGRID_API_KEY.');
+    throw new Error('No mail provider configured. Set RESEND_API_KEY (recommended), SENDGRID_API_KEY, or MAILJET_API_KEY + MAILJET_API_SECRET.');
   }
   return chain[0];
 };

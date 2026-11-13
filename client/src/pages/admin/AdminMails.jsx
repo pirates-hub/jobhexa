@@ -111,7 +111,8 @@ function AdminMails() {
   const config = status?.config;
   const chain = config?.chain || [];
   const configuredProviders = (config?.providers || []).filter((p) => p.configured);
-  const primarySender = configuredProviders[0]?.from;
+  const primarySender = (config?.providers || []).find((p) => p.provider === chain[0])?.from
+    || configuredProviders[0]?.from;
   const stats = status?.stats || { sent: 0, failed: 0, sending: 0, byFlow: {} };
   const resend = status?.resend;
 
@@ -150,7 +151,7 @@ function AdminMails() {
         {!loading && config && chain.length === 0 && (
           <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-900">
             <p className="font-extrabold">No mail provider is configured.</p>
-            <p className="mt-1">Add <b>RESEND_API_KEY</b> (recommended) on Render. Brevo needs <b>BREVO_ENABLED=true</b>; SMTP needs <b>ALLOW_SMTP=true</b> and does not work on Render.</p>
+            <p className="mt-1">Add <b>RESEND_API_KEY</b> (recommended), <b>MAILJET_API_KEY</b> + <b>MAILJET_API_SECRET</b>, or <b>SENDGRID_API_KEY</b> on Render. Brevo needs <b>BREVO_ENABLED=true</b>; SMTP needs <b>ALLOW_SMTP=true</b> and does not work on Render.</p>
           </div>
         )}
 
@@ -207,7 +208,7 @@ function AdminMails() {
               <div className="bg-white rounded-[24px] border border-slate-200 p-6 shadow-sm">
                 <h2 className="font-extrabold text-slate-900">Resend domains</h2>
                 {!resend?.configured ? (
-                  <p className="mt-3 text-sm font-medium text-slate-500">RESEND_API_KEY is not set.</p>
+                  <p className="mt-3 text-sm font-medium text-slate-500">Resend is not configured. Active provider: {chain[0] || 'none'}.</p>
                 ) : !resend.ok ? (
                   <p className="mt-3 text-sm font-medium text-rose-600 break-words">{resend.error}</p>
                 ) : resend.domains.length === 0 ? (
