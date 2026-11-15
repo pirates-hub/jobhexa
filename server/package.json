@@ -9,6 +9,8 @@
     "start": "node server.js",
     "seed": "node src/seeds/seed.js",
     "reseed:videos": "node src/seeds/reseedVideos.js",
+    "db:report": "node scripts/mongo-report.mjs",
+    "db:index": "node scripts/add-unique-index.mjs",
     "test": "vitest run",
     "test:watch": "vitest --watch"
   },

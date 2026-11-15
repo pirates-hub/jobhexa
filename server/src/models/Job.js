@@ -152,6 +152,13 @@ jobSchema.index({ state: 1 });
 jobSchema.index({ jobStatus: 1 });
 jobSchema.index({ applicationEndDate: 1 });
 jobSchema.index({ title: 'text', description: 'text', department: 'text' });
+// Duplicate-key: one listing per title+department+state+closing date. Enforced
+// by Mongo (created via scripts/add-unique-index.mjs after the duplicate
+// report showed 0 conflicts) so no code path can re-insert a duplicate.
+jobSchema.index(
+  { title: 1, department: 1, state: 1, applicationEndDate: 1 },
+  { name: 'uniq_job_dup_key', unique: true },
+);
 
 const Job = mongoose.model('Job', jobSchema);
 
