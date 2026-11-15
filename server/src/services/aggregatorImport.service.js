@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import slugify from 'slugify';
 import Job from '../models/Job.js';
+import { buildSlug } from '../utils/slug.js';
 
 const CATEGORIES = ['new', 'active', 'closing_soon', 'expired'];
 const MAX_TITLE = 300;
@@ -79,7 +79,7 @@ export function mapAggregatorJob(item, now = new Date()) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const expired = lastDate ? lastDate < startOfToday : category === 'expired';
   const vacancyCount = Number(item.vacancies);
-  const slug = (slugify(`${title} ${id.slice(0, 6)}`, { lower: true, strict: true }) || `job-${id.slice(0, 8)}`).slice(0, 200);
+  const slug = (buildSlug(`${title} ${id.slice(0, 6)}`) || `job-${id.slice(0, 8)}`).slice(0, 200);
 
   return {
     ok: true,

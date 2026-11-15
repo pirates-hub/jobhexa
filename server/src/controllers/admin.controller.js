@@ -5,7 +5,7 @@ import Notification from '../models/Notification.js';
 import NotificationLog from '../models/NotificationLog.js';
 import MailDelivery from '../models/MailDelivery.js';
 import MailAttempt from '../models/MailAttempt.js';
-import slugify from 'slugify';
+import { buildSlug } from '../utils/slug.js';
 import {
   getMailStatus as buildMailStatus,
   runFlow,
@@ -192,7 +192,7 @@ export const createTopic = async (req, res) => {
         ? await Subject.findOne({ slug: subjectSlug })
         : await Subject.findOne({ name: new RegExp(`^${String(subjectName || '').trim()}$`, 'i') });
       if (!subject) { skipped.push(`${name} (subject not found)`); continue; }
-      const finalSlug = slug || slugify(name, { lower: true, strict: true });
+      const finalSlug = slug || buildSlug(name);
       const exists = await Topic.findOne({ slug: finalSlug });
       if (exists) { skipped.push(`${name} (already exists)`); continue; }
       const topic = await Topic.create({

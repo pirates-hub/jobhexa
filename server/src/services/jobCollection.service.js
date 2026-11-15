@@ -15,6 +15,7 @@ import Notification from '../models/Notification.js';
 import SourceState from '../models/SourceState.js';
 import CollectionRun from '../models/CollectionRun.js';
 import SOURCES from '../config/officialSources.js';
+import { windowStatus } from '../utils/jobStatus.js';
 
 const UA = process.env.COLLECTOR_USER_AGENT || 'JobHexa-Collector/1.0';
 // AI structuring goes through ai.service.js (Groq cloud).
@@ -98,17 +99,10 @@ export const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/
 
 export const dedupKey = (organization, title) => `${normKey(organization)}::${normKey(title)}`;
 
-export const windowStatus = (start, end, now = new Date()) => {
-  const t = now instanceof Date ? now : new Date(now);
-  if (end && new Date(end) < t) return 'closed';
-  if (start && new Date(start) > t) return 'upcoming';
-  if (start && end) {
-    const days = Math.ceil((new Date(end) - t) / 86400000);
-    if (days <= 3) return 'closing_soon';
-    return 'active';
-  }
-  return null; // indeterminate — caller keeps existing status
-};
+// One copy of the status rule — shared with the 6 AM status cron and the
+// weekly state refresh (src/utils/jobStatus.js). Re-exported here because
+// the collector has always been its public home (tests import from here).
+export { windowStatus };
 
 const isHttpUrl = (v) => {
   try {
@@ -599,13 +593,8 @@ export const runWeeklyStateRefresh = async () => {
     checked += 1;
     const st = job.state || 'All India';
     perState[st] = (perState[st] || 0) + 1;
-    let next = job.jobStatus;
-    if (job.applicationEndDate && new Date(job.applicationEndDate) < now) next = 'closed';
-    else if (job.applicationStartDate && new Date(job.applicationStartDate) > now) next = 'upcoming';
-    else if (job.applicationStartDate && job.applicationEndDate) {
-      const days = Math.ceil((new Date(job.applicationEndDate) - now) / 86400000);
-      next = days <= 3 ? 'closing_soon' : 'active';
-    }
+    // Shared window rule (src/utils/jobStatus.js); null = keep current status.
+    const next = windowStatus(job.applicationStartDate, job.applicationEndDate, now) ?? job.jobStatus;
     if (next === 'closed' && job.jobStatus !== 'closed') expired += 1;
     if (next === 'closing_soon') closing += 1;
     job.jobStatus = next;
