@@ -22,6 +22,8 @@ const fmt = (value) => (value ? new Date(value).toLocaleString('en-IN', { dateSt
 
 const flowLabel = (flow) => FLOW_LABELS[flow] || flow || '—';
 
+const providerLabel = (provider) => (provider === 'gmail_relay' ? 'Gmail relay' : provider || '—');
+
 const statusPill = (status) => {
   if (status === 'sent') return 'bg-emerald-100 text-emerald-700';
   if (status === 'failed') return 'bg-rose-100 text-rose-700';
@@ -151,7 +153,7 @@ function AdminMails() {
         {!loading && config && chain.length === 0 && (
           <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-900">
             <p className="font-extrabold">No mail provider is configured.</p>
-            <p className="mt-1">Add <b>RESEND_API_KEY</b> (recommended), <b>MAILJET_API_KEY</b> + <b>MAILJET_API_SECRET</b>, or <b>SENDGRID_API_KEY</b> on Render. Brevo needs <b>BREVO_ENABLED=true</b>; SMTP needs <b>ALLOW_SMTP=true</b> and does not work on Render.</p>
+            <p className="mt-1">Add <b>GMAIL_RELAY_URL</b> + <b>GMAIL_RELAY_SECRET</b> (free Gmail relay), <b>RESEND_API_KEY</b> (needs a verified domain), <b>MAILJET_API_KEY</b> + <b>MAILJET_API_SECRET</b>, or <b>SENDGRID_API_KEY</b> on Render. Brevo needs <b>BREVO_ENABLED=true</b>; SMTP needs <b>ALLOW_SMTP=true</b> and does not work on Render.</p>
           </div>
         )}
 
@@ -166,7 +168,7 @@ function AdminMails() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     {chain.map((provider, index) => (
                       <span key={provider} className={`rounded-full px-3 py-1.5 text-xs font-bold ${index === 0 ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                        {index + 1}. {provider}
+                        {index + 1}. {providerLabel(provider)}
                       </span>
                     ))}
                   </div>
@@ -206,8 +208,10 @@ function AdminMails() {
               </div>
 
               <div className="bg-white rounded-[24px] border border-slate-200 p-6 shadow-sm">
-                <h2 className="font-extrabold text-slate-900">Resend domains</h2>
-                {!resend?.configured ? (
+                <h2 className="font-extrabold text-slate-900">{chain[0] === 'gmail_relay' ? 'Gmail relay' : 'Resend domains'}</h2>
+                {chain[0] === 'gmail_relay' ? (
+                  <p className="mt-3 text-sm font-medium text-slate-500">Sending through the Gmail relay. Consumer Gmail allows about 100 recipients/day.</p>
+                ) : !resend?.configured ? (
                   <p className="mt-3 text-sm font-medium text-slate-500">Resend is not configured. Active provider: {chain[0] || 'none'}.</p>
                 ) : !resend.ok ? (
                   <p className="mt-3 text-sm font-medium text-rose-600 break-words">{resend.error}</p>
@@ -223,7 +227,11 @@ function AdminMails() {
                     ))}
                   </div>
                 )}
-                <p className="mt-4 text-[11px] leading-relaxed text-slate-400">A verified domain is required to show “JobHexa” in the inbox and send to recipients other than the Resend account owner.</p>
+                <p className="mt-4 text-[11px] leading-relaxed text-slate-400">
+                  {chain[0] === 'gmail_relay'
+                    ? 'The relay sends from your real Gmail account, so Google authenticates the message. Replies go to GMAIL_REPLY_TO.'
+                    : 'A verified domain is required to show “JobHexa” in the inbox and send to recipients other than the Resend account owner.'}
+                </p>
               </div>
             </div>
 
@@ -246,7 +254,7 @@ function AdminMails() {
                 {testResult && (
                   <div className={`mt-3 rounded-xl border p-3 text-xs ${testResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'}`}>
                     {testResult.ok
-                      ? <>Sent via <b>{testResult.provider}</b> to {testResult.to} · message id {testResult.messageId}</>
+                      ? <>Sent via <b>{providerLabel(testResult.provider)}</b> to {testResult.to} · message id {testResult.messageId}</>
                       : <>Failed: {testResult.error}</>}
                   </div>
                 )}

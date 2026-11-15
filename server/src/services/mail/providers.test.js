@@ -4,7 +4,7 @@ vi.mock('../../models/MailAttempt.js', () => ({
   default: { create: vi.fn() },
 }));
 
-import { sendViaMailjet } from './providers.js';
+import { sendViaGmailRelay, sendViaMailjet } from './providers.js';
 
 const response = (status, body) => ({
   ok: status >= 200 && status < 300,
@@ -88,5 +88,82 @@ describe('Mailjet provider', () => {
     })));
 
     await expect(sendViaMailjet(mail)).rejects.toThrow(/Sender not validated/);
+  });
+});
+
+describe('Gmail relay provider', () => {
+  beforeEach(() => {
+    vi.stubEnv('GMAIL_RELAY_URL', 'https://script.google.com/macros/s/test/exec');
+    vi.stubEnv('GMAIL_RELAY_SECRET', 'relay-secret');
+    vi.stubEnv('GMAIL_FROM', 'usethinkllm@gmail.com');
+    vi.stubEnv('GMAIL_SENDER_NAME', 'JobHexa');
+    vi.stubEnv('GMAIL_REPLY_TO', '');
+    vi.stubEnv('EMAIL_FROM', '');
+    vi.stubEnv('SMTP_FROM', '');
+    vi.stubEnv('SMTP_USER', '');
+    vi.stubEnv('RESEND_REPLY_TO', '');
+    vi.stubEnv('EMAIL_REPLY_TO', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('posts the message to the Apps Script relay with the shared secret', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, {
+      ok: true,
+      messageId: 'relay-1',
+      remaining: 99,
+    })));
+
+    const result = await sendViaGmailRelay({
+      ...mail,
+      headers: {
+        'List-Unsubscribe': '<https://jobhexa.example/api/unsubscribe?token=abc>',
+      },
+    });
+
+    expect(result).toEqual({ provider: 'gmail_relay', messageId: 'relay-1' });
+    const [url, options] = fetch.mock.calls[0];
+    expect(url).toBe('https://script.google.com/macros/s/test/exec');
+    expect(options.headers['Content-Type']).toBe('application/json');
+
+    const payload = JSON.parse(options.body);
+    expect(payload).toMatchObject({
+      secret: 'relay-secret',
+      to: 'user@example.com',
+      subject: 'Hello',
+      html: '<p>Hello</p>',
+      text: 'Hello',
+      fromName: 'JobHexa',
+      replyTo: 'usethinkllm@gmail.com',
+      headers: {
+        'List-Unsubscribe': '<https://jobhexa.example/api/unsubscribe?token=abc>',
+      },
+    });
+  });
+
+  it('treats an unauthorized relay response as a 401', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, {
+      ok: false,
+      error: 'unauthorized',
+    })));
+
+    await expect(sendViaGmailRelay(mail)).rejects.toMatchObject({
+      name: 'MailProviderError',
+      statusCode: 401,
+    });
+  });
+
+  it('explains an HTML response from a misconfigured deployment', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => '<html><body>Sign in to continue</body></html>',
+    }));
+
+    await expect(sendViaGmailRelay(mail)).rejects.toThrow(/Anyone/);
   });
 });

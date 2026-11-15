@@ -7,6 +7,9 @@ const MANAGED = [
   'MAILJET_API_KEY',
   'MAILJET_API_SECRET',
   'MAILJET_FROM',
+  'GMAIL_RELAY_URL',
+  'GMAIL_RELAY_SECRET',
+  'GMAIL_FROM',
   'BREVO_API_KEY',
   'BREVO_ENABLED',
   'SMTP_USER',
@@ -55,6 +58,26 @@ describe('mail provider chain', () => {
 
     vi.stubEnv('EMAIL_PROVIDER', 'mailjet');
     expect(providerChain()).toEqual(['mailjet']);
+  });
+
+  it('requires both Gmail relay settings and honours EMAIL_PROVIDER=gmail_relay', () => {
+    vi.stubEnv('GMAIL_RELAY_URL', 'https://script.google.com/macros/s/test/exec');
+    expect(providerChain()).toEqual([]);
+
+    vi.stubEnv('GMAIL_RELAY_SECRET', 'relay-secret');
+    expect(providerChain()).toEqual(['gmail_relay']);
+
+    vi.stubEnv('EMAIL_PROVIDER', 'gmail_relay');
+    expect(providerChain()).toEqual(['gmail_relay']);
+  });
+
+  it('places the Gmail relay after the HTTPS API providers by default', () => {
+    vi.stubEnv('RESEND_API_KEY', 're_test');
+    vi.stubEnv('MAILJET_API_KEY', 'public-key');
+    vi.stubEnv('MAILJET_API_SECRET', 'secret-key');
+    vi.stubEnv('GMAIL_RELAY_URL', 'https://script.google.com/macros/s/test/exec');
+    vi.stubEnv('GMAIL_RELAY_SECRET', 'relay-secret');
+    expect(providerChain()).toEqual(['resend', 'mailjet', 'gmail_relay']);
   });
 
   it('keeps Brevo disabled until explicitly enabled', () => {

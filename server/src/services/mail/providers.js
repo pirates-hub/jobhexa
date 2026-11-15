@@ -2,6 +2,8 @@ import dns from 'node:dns';
 import MailAttempt from '../../models/MailAttempt.js';
 import {
   brevoSender,
+  gmailRelayReplyTo,
+  gmailRelaySender,
   isDryRun,
   isPaused,
   mailjetSender,
@@ -199,6 +201,58 @@ export const sendViaMailjet = async ({ to, subject, html, text, headers }) => {
   return { provider: 'mailjet', messageId: String(messageId) };
 };
 
+// Free fallback for accounts without a verified domain. A Google Apps Script
+// web app sends through the real Gmail account, so Google signs the message
+// itself. Consumer Gmail allows roughly 100 recipients per day.
+export const sendViaGmailRelay = async ({ to, subject, html, text, headers }) => {
+  const url = (process.env.GMAIL_RELAY_URL || '').trim();
+  const secret = (process.env.GMAIL_RELAY_SECRET || '').trim();
+  if (!url || !secret) {
+    throw new MailProviderError('GMAIL_RELAY_URL/GMAIL_RELAY_SECRET are missing');
+  }
+  const from = gmailRelaySender();
+  if (!addressOf(from)) throw new MailProviderError('GMAIL_FROM is empty');
+
+  const { res, data } = await postJson(url, { 'Content-Type': 'application/json' }, {
+    secret,
+    to,
+    subject,
+    html: html || '',
+    text: text || '',
+    fromName: displayName(from),
+    replyTo: gmailRelayReplyTo(),
+    ...(headers && Object.keys(headers).length ? { headers } : {}),
+  });
+
+  if (!res.ok) {
+    const raw = data?.error || data?.message || (typeof data?.raw === 'string' ? data.raw : 'request failed');
+    throw new MailProviderError(`Gmail relay ${res.status}: ${String(raw).slice(0, 300)}`, res.status);
+  }
+
+  if (data?.ok !== true) {
+    const raw = String(data?.error || '').trim();
+    if (!raw && typeof data?.raw === 'string' && data.raw.trim().startsWith('<')) {
+      throw new MailProviderError(
+        'Gmail relay returned HTML instead of JSON — in the Apps Script deployment, set "Who has access" to "Anyone"',
+        502
+      );
+    }
+    const message = raw || 'unexpected response from the Apps Script relay';
+    const statusCode = /unauthori[sz]ed|secret/i.test(message)
+      ? 401
+      : /quota|too many/i.test(message)
+        ? 429
+        : 502;
+    throw new MailProviderError(`Gmail relay rejected: ${message}`.slice(0, 300), statusCode);
+  }
+
+  if (typeof data.remaining === 'number' && data.remaining <= 20) {
+    console.warn(`[Mail] Gmail relay has ${data.remaining} recipient(s) left today`);
+  }
+
+  return { provider: 'gmail_relay', messageId: data.messageId || `gmail-relay-${Date.now()}` };
+};
+
 export const sendViaBrevo = async ({ to, subject, html, text, headers }) => {
   const key = (process.env.BREVO_API_KEY || '').trim();
   if (!key) throw new MailProviderError('BREVO_API_KEY is missing');
@@ -278,6 +332,7 @@ const SENDERS = {
   resend: sendViaResend,
   sendgrid: sendViaSendgrid,
   mailjet: sendViaMailjet,
+  gmail_relay: sendViaGmailRelay,
   brevo: sendViaBrevo,
   smtp: sendViaSmtp,
 };
@@ -293,7 +348,7 @@ export const sendWithProviders = async ({ to, subject, html, text, headers = {},
 
   const chain = providerChain();
   if (!chain.length) {
-    throw new Error('No mail provider configured. Set RESEND_API_KEY (recommended), SENDGRID_API_KEY, MAILJET_API_KEY + MAILJET_API_SECRET, or BREVO_API_KEY with BREVO_ENABLED=true.');
+    throw new Error('No mail provider configured. Set GMAIL_RELAY_URL + GMAIL_RELAY_SECRET, RESEND_API_KEY (recommended with a verified domain), SENDGRID_API_KEY, MAILJET_API_KEY + MAILJET_API_SECRET, or BREVO_API_KEY with BREVO_ENABLED=true.');
   }
 
   const failures = [];

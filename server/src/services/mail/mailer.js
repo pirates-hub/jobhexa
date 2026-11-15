@@ -313,7 +313,7 @@ export const getMailStatus = async () => {
 export const logMailStartup = () => {
   const chain = providerChain();
   if (!chain.length) {
-    console.error('[Mail] No provider configured. Set RESEND_API_KEY (recommended), SENDGRID_API_KEY, MAILJET_API_KEY + MAILJET_API_SECRET, or BREVO_API_KEY with BREVO_ENABLED=true; SMTP requires ALLOW_SMTP=true and does not work on Render.');
+    console.error('[Mail] No provider configured. Set GMAIL_RELAY_URL + GMAIL_RELAY_SECRET, RESEND_API_KEY (recommended with a verified domain), SENDGRID_API_KEY, MAILJET_API_KEY + MAILJET_API_SECRET, or BREVO_API_KEY with BREVO_ENABLED=true; SMTP requires ALLOW_SMTP=true and does not work on Render.');
     return;
   }
 
@@ -328,6 +328,9 @@ export const logMailStartup = () => {
   if (chain.includes('smtp')) console.warn('[Mail] SMTP is enabled — Render blocks outbound ports 587/465; prefer an HTTPS API');
   if (chain.includes('mailjet') && /@gmail\.com$/i.test(addressOf(senderFor('mailjet')))) {
     console.warn('[Mail] Mailjet is sending from a Gmail address — Gmail DMARC may reduce inbox placement');
+  }
+  if (chain.includes('gmail_relay')) {
+    console.log('[Mail] Gmail relay is active — consumer Gmail allows about 100 recipients per day');
   }
 
   if (chain.includes('resend')) {

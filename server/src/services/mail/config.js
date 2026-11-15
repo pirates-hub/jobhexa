@@ -41,6 +41,17 @@ export const mailjetSender = () => withName(
   process.env.MAILJET_SENDER_NAME || 'JobHexa'
 );
 
+// The Gmail relay sends through the real Gmail account, so the From address is
+// fixed by Google. A display name is still applied on the Apps Script side.
+export const gmailRelaySender = () => withName(
+  addressOf(process.env.GMAIL_FROM || process.env.EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER),
+  process.env.GMAIL_SENDER_NAME || 'JobHexa'
+);
+
+export const gmailRelayReplyTo = () => addressOf(
+  process.env.GMAIL_REPLY_TO || process.env.GMAIL_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER
+);
+
 export const brevoSender = () => withName(
   addressOf(process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER),
   process.env.BREVO_SENDER_NAME || 'JobHexa'
@@ -50,6 +61,7 @@ export const senderFor = (provider) => {
   if (provider === 'resend') return resendSender();
   if (provider === 'sendgrid') return sendgridSender();
   if (provider === 'mailjet') return mailjetSender();
+  if (provider === 'gmail_relay') return gmailRelaySender();
   if (provider === 'brevo') return brevoSender();
   if (provider === 'smtp') return withName(addressOf(process.env.SMTP_FROM || process.env.SMTP_USER));
   return '';
@@ -62,6 +74,9 @@ export const providerConfigured = {
   sendgrid: () => Boolean((process.env.SENDGRID_API_KEY || '').trim()),
   mailjet: () => Boolean((process.env.MAILJET_API_KEY || '').trim())
     && Boolean((process.env.MAILJET_API_SECRET || '').trim()),
+  // The relay needs both the Apps Script /exec URL and the shared secret.
+  gmail_relay: () => Boolean((process.env.GMAIL_RELAY_URL || '').trim())
+    && Boolean((process.env.GMAIL_RELAY_SECRET || '').trim()),
   // Brevo is off unless explicitly enabled: the account was paused on 28 Oct
   // and its API accepts mail without delivering it, which hides failures.
   brevo: () => Boolean((process.env.BREVO_API_KEY || '').trim())
@@ -72,7 +87,7 @@ export const providerConfigured = {
     && (truthy(process.env.ALLOW_SMTP) || (process.env.EMAIL_PROVIDER || '').toLowerCase() === 'smtp'),
 };
 
-export const PROVIDER_ORDER = ['resend', 'sendgrid', 'mailjet', 'brevo', 'smtp'];
+export const PROVIDER_ORDER = ['resend', 'sendgrid', 'mailjet', 'gmail_relay', 'brevo', 'smtp'];
 
 export const providerChain = () => {
   const preferred = (process.env.EMAIL_PROVIDER || '').toLowerCase();
