@@ -1,6 +1,6 @@
 import Notification from '../models/Notification.js';
 export const getNotifications = async (req, res) => {
-  const notifs = await Notification.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(50).populate('jobId', 'title slug');
+  const notifs = await Notification.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(50).populate('jobId', 'title slug').lean();
   res.json({ success: true, data: { notifications: notifs } });
 };
 export const getUnreadCount = async (req, res) => {

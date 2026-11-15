@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import compression from 'compression';
 import './src/config/env.js';
 import cookieParser from 'cookie-parser';
 import connectDB from './src/config/db.js';
@@ -31,6 +32,9 @@ startJobUpdateCron();
 startCollectionCrons();
 
 // Middleware
+// gzip/br for JSON + sitemap/robots: listing payloads are the bulk of our
+// bandwidth and compress 5-10x. Skipped for already-compressed bodies.
+app.use(compression());
 // CSP allowlist: Vanta background CDN, Google Fonts, YouTube embeds/thumbs.
 // Default helmet() would block these (works in dev because vite serves the
 // client without helmet — which is exactly why animation died only on Render).

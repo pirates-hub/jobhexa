@@ -6,6 +6,7 @@ import NotificationLog from '../models/NotificationLog.js';
 import MailDelivery from '../models/MailDelivery.js';
 import MailAttempt from '../models/MailAttempt.js';
 import { buildSlug } from '../utils/slug.js';
+import { invalidateJobCache } from '../utils/cache.js';
 import {
   getMailStatus as buildMailStatus,
   runFlow,
@@ -44,7 +45,7 @@ export const getDashboardStats = async (req, res) => {
 };
 
 export const getAllJobsAdmin = async (req, res) => {
-  const jobs = await Job.find().sort({ createdAt: -1 }).limit(100);
+  const jobs = await Job.find().sort({ createdAt: -1 }).limit(100).lean();
   res.json({ success: true, data: { jobs } });
 };
 
@@ -55,7 +56,8 @@ export const getPendingJobs = async (req, res) => {
     Job.find({ verificationStatus: 'pending' })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(limit),
+      .limit(limit)
+      .lean(),
     Job.countDocuments({ verificationStatus: 'pending' }),
   ]);
   res.json({
@@ -72,6 +74,7 @@ export const verifyJob = async (req, res) => {
   job.verifiedBy = req.user._id;
   job.verificationDate = new Date();
   await job.save();
+  invalidateJobCache();
   await logAction(req.user._id, 'verify_job', 'Job', job._id, {}, req.ip);
   if (!newlyPublished) return res.json({ success: true, data: { job } });
   // In-app bell + Telegram only. The instant email fan-out was dropped in the
@@ -90,12 +93,14 @@ export const rejectJob = async (req, res) => {
   job.verificationStatus = 'rejected';
   job.verificationNotes = req.body.reason || '';
   await job.save();
+  invalidateJobCache();
   await logAction(req.user._id, 'reject_job', 'Job', job._id, { reason: req.body.reason }, req.ip);
   res.json({ success: true, data: { job } });
 };
 
 export const createJob = async (req, res) => {
   const job = await Job.create({ ...req.body, source: 'admin', verificationStatus: 'verified', verifiedBy: req.user._id });
+  invalidateJobCache();
   await logAction(req.user._id, 'create_job', 'Job', job._id, {}, req.ip);
   try {
     await pushInAppAlert(job);
@@ -106,6 +111,7 @@ export const createJob = async (req, res) => {
 export const updateJob = async (req, res) => {
   const job = await Job.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
   if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
+  invalidateJobCache();
   await logAction(req.user._id, 'update_job', 'Job', job._id, req.body, req.ip);
   res.json({ success: true, data: { job } });
 };
@@ -113,6 +119,7 @@ export const updateJob = async (req, res) => {
 export const deleteJob = async (req, res) => {
   const job = await Job.findByIdAndDelete(req.params.id);
   if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
+  invalidateJobCache();
   await logAction(req.user._id, 'delete_job', 'Job', job._id, {}, req.ip);
   res.json({ success: true, data: { message: 'Job deleted' } });
 };

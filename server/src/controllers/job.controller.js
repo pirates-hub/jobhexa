@@ -1,6 +1,13 @@
 import Job from '../models/Job.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { checkEligibility } from '../services/eligibility.service.js';
+import { cached } from '../utils/cache.js';
+
+// Public list endpoints render JobCard only — these fields are never shown on
+// a list (they live on the detail page), so lists never ship them.
+const LIST_EXCLUDE = '-description -syllabus -howToApply -categoryWiseVacancies -postingLocations -tags -verificationNotes -__v';
+
+const toPositiveInt = (v, def, max) => Math.min(Math.max(parseInt(v) || def, 1), max);
 
 export const getJobs = async (req, res) => {
   try {
@@ -63,7 +70,8 @@ export const getJobs = async (req, res) => {
         .sort(sort)
         .skip(skip)
         .limit(limitNum)
-        .select('-__v'),
+        .select(LIST_EXCLUDE)
+        .lean(),
       Job.countDocuments(filter),
     ]);
     // Total vacancy posts for current filter ($text search can't aggregate — fallback 0)
@@ -90,13 +98,17 @@ export const getJobs = async (req, res) => {
 
 export const getJobBySlug = async (req, res) => {
   try {
-    const job = await Job.findOne({ slug: req.params.slug, verificationStatus: 'verified' }).select('-__v');
+    // One round trip: bump the view counter and return the doc atomically
+    // (the old read-then-save cost two queries per page view).
+    const job = await Job.findOneAndUpdate(
+      { slug: req.params.slug, verificationStatus: 'verified' },
+      { $inc: { views: 1 } },
+      { new: true },
+    ).select('-__v').lean();
+
     if (!job) {
       return errorResponse(res, 'Job not found', 404);
     }
-
-    job.views += 1;
-    await job.save();
 
     return successResponse(res, { job });
   } catch (error) {
@@ -106,13 +118,30 @@ export const getJobBySlug = async (req, res) => {
 
 export const getJobsByExamType = async (req, res) => {
   try {
-    const jobs = await Job.find({
+    const page = toPositiveInt(req.query.page, 1, 100000);
+    const limit = toPositiveInt(req.query.limit, 50, 100);
+    const filter = {
       examType: req.params.examType,
       jobStatus: 'active',
       verificationStatus: 'verified',
-    }).sort({ createdAt: -1 });
+    };
+    const jobs = await cached(`jobs:exam:${req.params.examType}:${page}:${limit}`, async () => {
+      const [rows, total] = await Promise.all([
+        Job.find(filter)
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .select(LIST_EXCLUDE)
+          .lean(),
+        Job.countDocuments(filter),
+      ]);
+      return { jobs: rows, total };
+    });
 
-    return successResponse(res, { jobs });
+    return successResponse(res, {
+      ...jobs,
+      pagination: { page, limit, total: jobs.total, pages: Math.ceil(jobs.total / limit) },
+    });
   } catch (error) {
     return errorResponse(res, error.message, 500);
   }
@@ -120,16 +149,35 @@ export const getJobsByExamType = async (req, res) => {
 
 export const getJobsByState = async (req, res) => {
   try {
-    const jobs = await Job.find({
+    const page = toPositiveInt(req.query.page, 1, 100000);
+    const limit = toPositiveInt(req.query.limit, 50, 100);
+    const filter = {
       $or: [
         { state: req.params.state },
         { state: 'All India' },
       ],
       jobStatus: 'active',
       verificationStatus: 'verified',
-    }).sort({ createdAt: -1 });
+    };
+    // State pages are the hottest listing (one per state) — cached with a
+    // 6 min TTL and flushed after every pipeline/admin write.
+    const jobs = await cached(`jobs:state:${req.params.state}:${page}:${limit}`, async () => {
+      const [rows, total] = await Promise.all([
+        Job.find(filter)
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .select(LIST_EXCLUDE)
+          .lean(),
+        Job.countDocuments(filter),
+      ]);
+      return { jobs: rows, total };
+    });
 
-    return successResponse(res, { jobs });
+    return successResponse(res, {
+      ...jobs,
+      pagination: { page, limit, total: jobs.total, pages: Math.ceil(jobs.total / limit) },
+    });
   } catch (error) {
     return errorResponse(res, error.message, 500);
   }
@@ -144,7 +192,7 @@ export const getUpcomingDeadlines = async (req, res) => {
       jobStatus: { $in: ['active', 'upcoming'] },
       verificationStatus: 'verified',
       applicationEndDate: { $gte: now, $lte: thirtyDaysFromNow },
-    }).sort({ applicationEndDate: 1 }).limit(10);
+    }).sort({ applicationEndDate: 1 }).limit(10).select(LIST_EXCLUDE).lean();
 
     return successResponse(res, { jobs });
   } catch (error) {
@@ -154,7 +202,7 @@ export const getUpcomingDeadlines = async (req, res) => {
 
 export const checkJobEligibility = async (req, res) => {
   try {
-    const job = await Job.findOne({ slug: req.params.slug });
+    const job = await Job.findOne({ slug: req.params.slug }).lean();
     if (!job) return errorResponse(res, 'Job not found', 404);
     if (!req.user) {
       return successResponse(res, { eligible: null, message: 'Login to check eligibility', jobId: job._id });
@@ -175,7 +223,10 @@ export const getRecommendedJobs = async (req, res) => {
     if (state) filter.$or = [{ state }, { state: 'All India' }];
     // Central page: All India jobs only
     if (level === 'central') filter.state = 'All India';
-    const jobs = await Job.find(filter).limit(Math.min(parseInt(limit) || 20, 50));
+    const jobs = await Job.find(filter)
+      .select(LIST_EXCLUDE)
+      .lean()
+      .limit(Math.min(parseInt(limit) || 20, 50));
     const scored = jobs.map(job => {
       try {
         const result = checkEligibility(req.user, job);

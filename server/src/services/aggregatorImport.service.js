@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import Job from '../models/Job.js';
 import { buildSlug } from '../utils/slug.js';
+import { invalidateJobCache } from '../utils/cache.js';
 
 const CATEGORIES = ['new', 'active', 'closing_soon', 'expired'];
 const MAX_TITLE = 300;
@@ -193,6 +194,10 @@ export async function importJobItems(items) {
       }
     }
   }
+
+  // New/changed listings invalidate the public listing cache so the portal
+  // reflects the sync on the next request (not 6 min later).
+  if (created + updated > 0) invalidateJobCache();
 
   return { received: items.length, created, updated, skipped, errors: errors.slice(0, 20) };
 }

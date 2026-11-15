@@ -3,7 +3,10 @@ import { successResponse, errorResponse } from '../utils/apiResponse.js';
 
 export const getApplications = async (req, res) => {
   try {
-    const apps = await Application.find({ user: req.user._id }).populate('job').sort({ createdAt: -1 });
+    const apps = await Application.find({ user: req.user._id })
+      .populate({ path: 'job', select: '-description -syllabus -howToApply -categoryWiseVacancies -verificationNotes -__v' })
+      .sort({ createdAt: -1 })
+      .lean();
     return successResponse(res, { applications: apps });
   } catch (error) {
     return errorResponse(res, error.message, 500);

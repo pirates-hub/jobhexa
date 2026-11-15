@@ -4,8 +4,9 @@ import { successResponse, errorResponse } from '../utils/apiResponse.js';
 export const getSavedJobs = async (req, res) => {
   try {
     const savedJobs = await SavedJob.find({ user: req.user._id })
-      .populate('job')
-      .sort({ createdAt: -1 });
+      .populate({ path: 'job', select: '-description -syllabus -howToApply -categoryWiseVacancies -verificationNotes -__v' })
+      .sort({ createdAt: -1 })
+      .lean();
     return successResponse(res, { savedJobs });
   } catch (error) {
     return errorResponse(res, error.message, 500);
