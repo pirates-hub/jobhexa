@@ -171,26 +171,32 @@ export async function importJobItems(items) {
 
   let created = 0;
   let updated = 0;
-  try {
-    const res = await Job.bulkWrite(ops, { ordered: false });
-    created = res.insertedCount || 0;
-    updated = res.matchedCount || 0;
-  } catch (err) {
-    // Unordered writes still apply every op that could succeed; the driver
-    // rejects with the per-op errors and the partial counts attached, so
-    // recover them instead of losing the whole batch.
-    const writeErrors = Array.isArray(err?.writeErrors) ? err.writeErrors : [];
-    created = err?.result?.insertedCount ?? 0;
-    updated = err?.result?.matchedCount ?? 0;
-    if (writeErrors.length === 0 && !err?.result) {
-      // Not a per-op write failure (connection hiccup, etc.): report once.
-      skipped += valid.length;
-      errors.push({ title: null, error: err.message });
-    } else {
-      skipped += writeErrors.length;
-      for (const we of writeErrors.slice(0, 20)) {
-        const mapped = typeof we.index === 'number' ? valid[we.index] : null;
-        errors.push({ title: mapped?.doc?.title || null, error: we.err?.message || String(we.message || we) });
+  // Chunked: Mongo caps a bulkWrite payload, and 500-op batches stay well
+  // under it while remaining far faster than per-doc writes. Each chunk is
+  // independent so one bad batch never loses the rest of the run.
+  const CHUNK = 500;
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    try {
+      const res = await Job.bulkWrite(ops.slice(i, i + CHUNK), { ordered: false });
+      created += res.insertedCount || 0;
+      updated += res.matchedCount || 0;
+    } catch (err) {
+      // Unordered writes still apply every op that could succeed; the driver
+      // rejects with the per-op errors and the partial counts attached, so
+      // recover them instead of losing the whole batch.
+      const writeErrors = Array.isArray(err?.writeErrors) ? err.writeErrors : [];
+      created += err?.result?.insertedCount ?? 0;
+      updated += err?.result?.matchedCount ?? 0;
+      if (writeErrors.length === 0 && !err?.result) {
+        // Not a per-op write failure (connection hiccup, etc.): report once.
+        skipped += Math.min(CHUNK, ops.length - i);
+        errors.push({ title: null, error: err.message });
+      } else {
+        skipped += writeErrors.length;
+        for (const we of writeErrors.slice(0, 20)) {
+          const mapped = typeof we.index === 'number' ? valid[i + we.index] : null;
+          errors.push({ title: mapped?.doc?.title || null, error: we.err?.message || String(we.message || we) });
+        }
       }
     }
   }

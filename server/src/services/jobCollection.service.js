@@ -16,6 +16,7 @@ import SourceState from '../models/SourceState.js';
 import CollectionRun from '../models/CollectionRun.js';
 import SOURCES from '../config/officialSources.js';
 import { windowStatus } from '../utils/jobStatus.js';
+import { invalidateJobCache } from '../utils/cache.js';
 
 const UA = process.env.COLLECTOR_USER_AGENT || 'JobHexa-Collector/1.0';
 // AI structuring goes through ai.service.js (Groq cloud).
@@ -588,7 +589,11 @@ export const runWeeklyStateRefresh = async () => {
   const states = await Job.distinct('state');
   const perState = {};
   let checked = 0, expired = 0, closing = 0;
-  const jobs = await Job.find({ verificationStatus: { $in: ['verified', 'needs_review'] } });
+  const jobs = await Job.find(
+    { verificationStatus: { $in: ['verified', 'needs_review'] } },
+    'state jobStatus applicationStartDate applicationEndDate',
+  ).lean();
+  const ops = [];
   for (const job of jobs) {
     checked += 1;
     const st = job.state || 'All India';
@@ -597,10 +602,18 @@ export const runWeeklyStateRefresh = async () => {
     const next = windowStatus(job.applicationStartDate, job.applicationEndDate, now) ?? job.jobStatus;
     if (next === 'closed' && job.jobStatus !== 'closed') expired += 1;
     if (next === 'closing_soon') closing += 1;
-    job.jobStatus = next;
-    job.lastVerifiedDate = now;
-    await job.save();
+    ops.push({
+      updateOne: {
+        filter: { _id: job._id },
+        update: { $set: { jobStatus: next, lastVerifiedDate: now } },
+      },
+    });
   }
+  // One bulk write per 500 changes instead of two queries per job.
+  for (let i = 0; i < ops.length; i += 500) {
+    await Job.bulkWrite(ops.slice(i, i + 500), { ordered: false });
+  }
+  invalidateJobCache();
   await CollectionRun.create({
     kind: 'weekly', source: 'ALL', status: 'completed', endTime: new Date(),
     jobsFound: checked, jobsUpdated: checked, jobsExpired: expired,

@@ -40,12 +40,43 @@ if (args.includes('--once')) {
   }
 } else {
   logger.info({ schedule: CRON_SCHEDULE }, 'scheduler started (Ctrl+C to stop)');
+
+  // Overlap guard: external sites are slow, so a run can outlast the 3h tick.
+  // Skipping the tick is correct — never let two runs share the SQLite DB.
+  let currentRun = null;
   cron.schedule(CRON_SCHEDULE, async () => {
-    try {
-      await runAll();
-      await syncToServer();
-    } catch (err) {
-      logger.error({ err: err.message }, 'scheduled run failed');
+    if (currentRun) {
+      logger.warn({}, 'previous run still in progress — skipping this tick');
+      return;
     }
+    currentRun = (async () => {
+      try {
+        await runAll();
+        await syncToServer();
+      } catch (err) {
+        logger.error({ err: err.message }, 'scheduled run failed');
+      } finally {
+        currentRun = null;
+      }
+    })();
+    await currentRun;
   });
+
+  // Graceful stop: let an in-flight run finish (bounded) so SQLite state and
+  // health.json are consistent, then exit. Second signal exits immediately.
+  let stopping = false;
+  const shutdown = async (signal) => {
+    if (stopping) process.exit(1);
+    stopping = true;
+    logger.info({ signal }, 'shutdown requested — waiting for in-flight run (max 30s)');
+    if (currentRun) {
+      await Promise.race([
+        currentRun,
+        new Promise((r) => setTimeout(r, 30000)),
+      ]);
+    }
+    process.exit(0);
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }

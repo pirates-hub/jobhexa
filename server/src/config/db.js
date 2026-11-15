@@ -12,6 +12,15 @@ const connectDB = async () => {
     console.error('MongoDB connection error:', error.message);
     process.exit(1);
   }
+
+  // Graceful shutdown: SIGTERM (docker stop / Render deploy) closes the pool
+  // instead of killing in-flight queries mid-write, then exits.
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, async () => {
+      console.log(`${signal} received — closing MongoDB connection`);
+      try { await mongoose.disconnect(); } finally { process.exit(0); }
+    });
+  }
 };
 
 export default connectDB;
