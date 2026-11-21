@@ -153,6 +153,10 @@ export async function runAll({ onlySource = null, onlyState = null } = {}) {
   };
   fs.writeFileSync(HEALTH_PATH, JSON.stringify({ ...summary, results }, null, 2));
   logger.info(summary, 'run summary');
+  // Politeness timestamps are per-run state (sources are ≥ 3h apart anyway);
+  // clearing keeps the Map at 0 entries between runs instead of growing for
+  // the lifetime of a long-lived scheduler process.
+  lastHit.clear();
   closeDb();
   return summary;
 }

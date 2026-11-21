@@ -26,8 +26,11 @@ describe('Home', () => {
     render(
       <BrowserRouter>
         <Home />
-      </BrowserRouter>
+      </BrowserRouter>,
     );
-    expect(screen.getByText(/Start for free/i)).toBeInTheDocument();
+    // The hero and closing section both end with this CTA.
+    const ctas = screen.getAllByText(/Start for free/i);
+    expect(ctas.length).toBeGreaterThan(0);
+    expect(ctas[0]).toHaveAttribute('href', '/register');
   });
 });

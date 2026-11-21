@@ -7,10 +7,14 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { USER_AGENT, REQ_TIMEOUT_MS } from './config.js';
 
+// Bounded: keys are protocol + TLS-mode combinations (< 10 in practice).
+// The cap guarantees it even if a new dimension is ever added to the key.
+const AGENT_MAX_KEYS = 32;
 const agents = new Map();
 function agentFor(url, { ignoreCert = false, legacyTls = false } = {}) {
   const key = `${new URL(url).protocol}//${ignoreCert ? 'insecure' : 'secure'}${legacyTls ? '+legacy' : ''}`;
   if (!agents.has(key)) {
+    if (agents.size >= AGENT_MAX_KEYS) agents.clear(); // evict all (rare)
     const mod = new URL(url).protocol === 'https:' ? https : http;
     agents.set(key, new mod.Agent({
       keepAlive: true,
