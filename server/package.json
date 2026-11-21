@@ -11,6 +11,7 @@
     "reseed:videos": "node src/seeds/reseedVideos.js",
     "db:report": "node scripts/mongo-report.mjs",
     "db:index": "node scripts/add-unique-index.mjs",
+    "db:drop-approved": "node scripts/drop-approved-leftovers.mjs",
     "test": "vitest run",
     "test:watch": "vitest --watch"
   },
