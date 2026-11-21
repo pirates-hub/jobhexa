@@ -79,9 +79,6 @@ npm run server       # backend :5000
 # Check: key starts with gsk_ and /api/chat answers
 ```
 
-## n8n (optional)
-- Workflows in `n8n-workflows/` - import to http://localhost:5678
-
 ## Build
 ```bash
 cd client && npm run build
